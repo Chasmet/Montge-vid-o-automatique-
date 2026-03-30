@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f1115" />
+  <title>Montage IA Mobile</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="theme-dark">
+  <div id="app">
+
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="backButton" class="icon-btn hidden" type="button" aria-label="Retour">←</button>
+        <div>
+          <p class="eyebrow">Application personnelle</p>
+          <h1 id="appTitle">Montage IA Mobile</h1>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <button id="themeToggle" class="chip-btn" type="button">Mode clair</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+
+      <section id="view-profile-select" class="view active">
+        <div class="hero-card">
+          <p class="hero-kicker">Bienvenue</p>
+          <h2>Choisis un profil</h2>
+          <p class="hero-text">
+            Admin avec mot de passe. Les autres profils entrent directement.
+          </p>
+        </div>
+
+        <div class="profile-grid">
+          <button class="profile-card admin-card" type="button" data-profile="admin">
+            <span class="profile-badge">Admin</span>
+            <span class="profile-name">Administrateur</span>
+            <span class="profile-desc">Réglages, partage, gestion</span>
+          </button>
+
+          <button class="profile-card" type="button" data-profile="user1">
+            <span class="profile-badge">Utilisateur 1</span>
+            <span class="profile-name">Mon espace</span>
+            <span class="profile-desc">Projets et médias locaux</span>
+          </button>
+
+          <button class="profile-card" type="button" data-profile="user2">
+            <span class="profile-badge">Utilisateur 2</span>
+            <span class="profile-name">Mon espace</span>
+            <span class="profile-desc">Projets et médias locaux</span>
+          </button>
+
+          <button class="profile-card" type="button" data-profile="user3">
+            <span class="profile-badge">Utilisateur 3</span>
+            <span class="profile-name">Mon espace</span>
+            <span class="profile-desc">Projets et médias locaux</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="view-admin-login" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Connexion admin</h2>
+            <p>Entre le mot de passe administrateur.</p>
+          </div>
+
+          <form id="adminLoginForm" class="stack-form">
+            <label class="field">
+              <span>Mot de passe admin</span>
+              <input
+                id="adminPassword"
+                name="adminPassword"
+                type="password"
+                placeholder="Entre le mot de passe"
+                autocomplete="current-password"
+              />
+            </label>
+
+            <button class="primary-btn" type="submit">Entrer</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="view-dashboard" class="view hidden">
+        <div class="hero-card">
+          <p class="hero-kicker">Accueil</p>
+          <h2 id="dashboardTitle">Ton espace</h2>
+          <p class="hero-text">
+            Crée un projet musique, un projet speech, ou prépare des prompts pour Sora.
+          </p>
+        </div>
+
+        <div class="grid-cards">
+          <button class="action-card" type="button" data-view-target="view-music-project">
+            <span class="action-icon">🎵</span>
+            <span class="action-title">Nouveau projet musique</span>
+            <span class="action-desc">Audio + montage image ou vidéo</span>
+          </button>
+
+          <button class="action-card" type="button" data-view-target="view-speech-project">
+            <span class="action-icon">🗣️</span>
+            <span class="action-title">Nouveau projet speech</span>
+            <span class="action-desc">Texte + voix + montage</span>
+          </button>
+
+          <button class="action-card" type="button" data-view-target="view-sora-helper">
+            <span class="action-icon">✨</span>
+            <span class="action-title">Assistant prompts Sora</span>
+            <span class="action-desc">Découpe audio + prompts 10 s ou 15 s</span>
+          </button>
+
+          <button class="action-card" type="button" data-view-target="view-projects">
+            <span class="action-icon">📁</span>
+            <span class="action-title">Mes projets</span>
+            <span class="action-desc">Retrouve tes montages et brouillons</span>
+          </button>
+
+          <button class="action-card" type="button" data-view-target="view-music-library">
+            <span class="action-icon">🖼️</span>
+            <span class="action-title">Bibliothèque musique</span>
+            <span class="action-desc">Images et vidéos du mode musique</span>
+          </button>
+
+          <button class="action-card" type="button" data-view-target="view-speech-library">
+            <span class="action-icon">🎬</span>
+            <span class="action-title">Bibliothèque speech</span>
+            <span class="action-desc">Images et vidéos du mode speech</span>
+          </button>
+
+          <button class="action-card" type="button" data-view-target="view-settings">
+            <span class="action-icon">⚙️</span>
+            <span class="action-title">Paramètres</span>
+            <span class="action-desc">Thème, stockage, préférences</span>
+          </button>
+
+          <button id="logoutButton" class="action-card danger-soft" type="button">
+            <span class="action-icon">↩️</span>
+            <span class="action-title">Changer de profil</span>
+            <span class="action-desc">Revenir à l’écran d’accueil</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="view-music-project" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Projet musique</h2>
+            <p>Choisis ton audio, le début, la durée finale et le type de montage.</p>
+          </div>
+
+          <div class="stack-form">
+            <label class="field">
+              <span>Nom du projet</span>
+              <input id="musicProjectName" type="text" placeholder="Ex : Clip sombre 1" />
+            </label>
+
+            <label class="field">
+              <span>Audio principal</span>
+              <input id="musicAudioInput" type="file" accept="audio/*" />
+            </label>
+
+            <div class="media-preview-card">
+              <audio id="musicAudioPlayer" controls preload="metadata"></audio>
+              <div class="audio-meta">
+                <p><strong>Début choisi :</strong> <span id="musicStartLabel">0 s</span></p>
+                <p><strong>Fin choisie :</strong> <span id="musicEndLabel">0 s</span></p>
+                <p><strong>Durée sélectionnée :</strong> <span id="musicRangeLabel">0 s</span></p>
+              </div>
+            </div>
+
+            <div class="row-2">
+              <label class="field">
+                <span>Début audio</span>
+                <input id="musicStartTime" type="number" min="0" step="0.1" value="0" />
+              </label>
+
+              <label class="field">
+                <span>Fin audio</span>
+                <input id="musicEndTime" type="number" min="0" step="0.1" value="0" />
+              </label>
+            </div>
+
+            <label class="field">
+              <span>Durée finale du montage</span>
+              <select id="musicDuration">
+                <option value="20">20 secondes</option>
+                <option value="30" selected>30 secondes</option>
+                <option value="60">1 minute</option>
+                <option value="120">2 minutes</option>
+                <option value="300">5 minutes</option>
+              </select>
+            </label>
+
+            <div class="segmented-group">
+              <p class="segment-title">Type de montage</p>
+              <div class="segmented-buttons">
+                <button class="segment-btn active" type="button" data-music-mode="video">Montage vidéo</button>
+                <button class="segment-btn" type="button" data-music-mode="image">Montage image</button>
+              </div>
+            </div>
+
+            <div class="segmented-group">
+              <p class="segment-title">Style dominant</p>
+              <div class="chip-wrap">
+                <button class="chip-btn active" type="button" data-music-style="social">Social</button>
+                <button class="chip-btn" type="button" data-music-style="cinematique">Cinématique</button>
+                <button class="chip-btn" type="button" data-music-style="emotion">Émotion</button>
+                <button class="chip-btn" type="button" data-music-style="sombre">Sombre</button>
+              </div>
+            </div>
+
+            <div class="sticky-actions">
+              <button id="musicCreateProjectBtn" class="primary-btn" type="button">Créer le montage musique</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-speech-project" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Projet speech</h2>
+            <p>Colle ton texte, choisis une voix, puis prépare le montage.</p>
+          </div>
+
+          <div class="stack-form">
+            <label class="field">
+              <span>Nom du projet</span>
+              <input id="speechProjectName" type="text" placeholder="Ex : Narration teaser 1" />
+            </label>
+
+            <label class="field">
+              <span>Texte à lire</span>
+              <textarea id="speechText" rows="8" placeholder="Colle ton texte ici..."></textarea>
+            </label>
+
+            <div class="row-2">
+              <label class="field">
+                <span>Voix</span>
+                <select id="speechVoice">
+                  <option value="male">Masculine</option>
+                  <option value="female">Féminine</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Ton</span>
+                <select id="speechTone">
+                  <option value="normal">Normal</option>
+                  <option value="emotion">Émotion</option>
+                  <option value="calm">Calme</option>
+                  <option value="energetic">Énergique</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="row-2">
+              <label class="field">
+                <span>Vitesse</span>
+                <select id="speechSpeed">
+                  <option value="0.9">Lente</option>
+                  <option value="1" selected>Normale</option>
+                  <option value="1.1">Rapide</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>Type de montage</span>
+                <select id="speechMode">
+                  <option value="video">Montage vidéo</option>
+                  <option value="image">Montage image</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="media-preview-card">
+              <audio id="speechAudioPlayer" controls preload="metadata"></audio>
+              <p class="small-note">La voix générée sera l’audio final du projet.</p>
+            </div>
+
+            <div class="sticky-actions">
+              <button id="speechGenerateVoiceBtn" class="secondary-btn" type="button">Générer la voix</button>
+              <button id="speechCreateProjectBtn" class="primary-btn" type="button">Créer le montage speech</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-sora-helper" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Assistant prompts Sora</h2>
+            <p>
+              L’application ne génère pas la vidéo ici. Elle découpe l’audio et prépare les prompts à copier.
+            </p>
+          </div>
+
+          <div class="stack-form">
+            <label class="field">
+              <span>Nom du projet prompts</span>
+              <input id="soraProjectName" type="text" placeholder="Ex : Sora clip spatial" />
+            </label>
+
+            <label class="field">
+              <span>Audio</span>
+              <input id="soraAudioInput" type="file" accept="audio/*" />
+            </label>
+
+            <div class="media-preview-card">
+              <audio id="soraAudioPlayer" controls preload="metadata"></audio>
+              <div class="audio-meta">
+                <p><strong>Début :</strong> <span id="soraStartLabel">0 s</span></p>
+                <p><strong>Fin :</strong> <span id="soraEndLabel">0 s</span></p>
+                <p><strong>Durée utile :</strong> <span id="soraRangeLabel">0 s</span></p>
+              </div>
+            </div>
+
+            <div class="row-2">
+              <label class="field">
+                <span>Début</span>
+                <input id="soraStartTime" type="number" min="0" step="0.1" value="0" />
+              </label>
+
+              <label class="field">
+                <span>Fin</span>
+                <input id="soraEndTime" type="number" min="0" step="0.1" value="0" />
+              </label>
+            </div>
+
+            <div class="segmented-group">
+              <p class="segment-title">Durée par prompt</p>
+              <div class="segmented-buttons">
+                <button class="segment-btn active" type="button" data-sora-duration="10">10 secondes</button>
+                <button class="segment-btn" type="button" data-sora-duration="15">15 secondes</button>
+              </div>
+            </div>
+
+            <label class="field">
+              <span>Style visuel</span>
+              <select id="soraStyle">
+                <option value="realisme">Réalisme</option>
+                <option value="sombre">Sombre</option>
+                <option value="cinematique">Cinématique</option>
+                <option value="emotion">Émotion</option>
+                <option value="urbain">Urbain</option>
+                <option value="spatial">Spatial</option>
+              </select>
+            </label>
+
+            <div class="sticky-actions">
+              <button id="soraGeneratePromptsBtn" class="primary-btn" type="button">Générer les prompts</button>
+            </div>
+
+            <div class="result-box">
+              <div class="result-box-head">
+                <h3>Résultat</h3>
+                <button id="copyAllSoraPromptsBtn" class="chip-btn" type="button">Copier toute la série</button>
+              </div>
+
+              <div id="soraPromptsList" class="prompt-list">
+                <div class="empty-state small">
+                  <p>Aucun prompt généré pour le moment.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-projects" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Mes projets</h2>
+            <p>Trouve tes brouillons, rendus et projets archivés.</p>
+          </div>
+
+          <div class="search-row">
+            <input id="projectSearchInput" type="search" placeholder="Rechercher un projet..." />
+            <select id="projectFilterSelect">
+              <option value="all">Tous</option>
+              <option value="music">Musique</option>
+              <option value="speech">Speech</option>
+              <option value="sora">Prompts Sora</option>
+            </select>
+          </div>
+
+          <div id="projectsList" class="card-list">
+            <div class="empty-state">
+              <p>Aucun projet pour le moment.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-music-library" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Bibliothèque musique</h2>
+            <p>Ajoute les images et vidéos utilisées pour les projets musique.</p>
+          </div>
+
+          <div class="stack-form">
+            <label class="field">
+              <span>Images musique</span>
+              <input id="musicImagesInput" type="file" accept="image/*" multiple />
+            </label>
+
+            <label class="field">
+              <span>Vidéos musique</span>
+              <input id="musicVideosInput" type="file" accept="video/*" multiple />
+            </label>
+
+            <div id="musicLibraryGrid" class="media-grid">
+              <div class="empty-state small">
+                <p>Aucun média dans la bibliothèque musique.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-speech-library" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Bibliothèque speech</h2>
+            <p>Ajoute les images et vidéos utilisées pour les projets speech.</p>
+          </div>
+
+          <div class="stack-form">
+            <label class="field">
+              <span>Images speech</span>
+              <input id="speechImagesInput" type="file" accept="image/*" multiple />
+            </label>
+
+            <label class="field">
+              <span>Vidéos speech</span>
+              <input id="speechVideosInput" type="file" accept="video/*" multiple />
+            </label>
+
+            <div id="speechLibraryGrid" class="media-grid">
+              <div class="empty-state small">
+                <p>Aucun média dans la bibliothèque speech.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Paramètres</h2>
+            <p>Préférences, stockage et réglages rapides.</p>
+          </div>
+
+          <div class="settings-group">
+            <div class="setting-row">
+              <div>
+                <h3>Thème</h3>
+                <p>Basculer entre sombre et clair.</p>
+              </div>
+              <button id="settingsThemeToggle" class="chip-btn" type="button">Changer</button>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <h3>Stockage local</h3>
+                <p>Voir l’espace utilisé et nettoyer les anciens fichiers.</p>
+              </div>
+              <button id="storageRefreshBtn" class="chip-btn" type="button">Actualiser</button>
+            </div>
+
+            <div class="storage-box">
+              <p><strong>Espace estimé utilisé :</strong> <span id="storageUsedLabel">0 Mo</span></p>
+              <p><strong>Projets sauvegardés :</strong> <span id="storageProjectsLabel">0</span></p>
+              <p><strong>Médias stockés :</strong> <span id="storageMediaLabel">0</span></p>
+            </div>
+
+            <button id="clearCacheBtn" class="danger-btn" type="button">Nettoyer le cache local</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-result" class="view hidden">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Résultat du projet</h2>
+            <p>Prévisualisation, métas, partage et export.</p>
+          </div>
+
+          <div class="result-video-card">
+            <video id="resultVideoPlayer" controls playsinline></video>
+          </div>
+
+          <div class="result-box">
+            <div class="result-box-head">
+              <h3>Méta réseaux sociaux</h3>
+              <button id="copyMainMetaBtn" class="chip-btn" type="button">Copier</button>
+            </div>
+            <pre id="mainMetaOutput" class="meta-output">Aucune méta générée.</pre>
+          </div>
+
+          <div class="result-box">
+            <div class="result-box-head">
+              <h3>Méta YouTube Shorts</h3>
+              <button id="copyShortMetaBtn" class="chip-btn" type="button">Copier</button>
+            </div>
+            <pre id="shortMetaOutput" class="meta-output">Aucune méta générée.</pre>
+          </div>
+
+          <div class="sticky-actions">
+            <button id="shareResultBtn" class="secondary-btn" type="button">Partager</button>
+            <button id="exportResultBtn" class="primary-btn" type="button">Exporter</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <nav class="bottom-nav">
+      <button class="bottom-tab active" type="button" data-view-target="view-dashboard">Accueil</button>
+      <button class="bottom-tab" type="button" data-view-target="view-projects">Projets</button>
+      <button class="bottom-tab" type="button" data-view-target="view-settings">Réglages</button>
+    </nav>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
