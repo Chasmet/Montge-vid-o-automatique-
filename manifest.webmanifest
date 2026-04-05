@@ -1,0 +1,19 @@
+{
+  "name": "Studio vidéo IA",
+  "short_name": "Montage IA",
+  "description": "Studio vidéo IA mobile pour créer des voix, montages et prompts vidéo.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
