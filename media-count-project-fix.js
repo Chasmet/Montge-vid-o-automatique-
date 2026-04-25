@@ -1,8 +1,8 @@
-/* V18.3 - Nombre de médias + rendu long sans champ Multer incorrect.
-   Corrige le bug "MulterError: Unexpected field" en utilisant le vrai nom de champ fichier existant. */
+/* V18.4 - Timeline dynamique jusqu'à 5 minutes.
+   Objectif : changer régulièrement de média, même à 1 minute, sans dépasser Render. */
 (function () {
-  const VERSION = "V18.3";
-  const RULES = [[30,6],[60,12],[90,15],[120,16],[150,18],[180,20],[210,22],[240,24],[270,26],[300,28]];
+  const VERSION = "V18.4";
+  const RULES = [[30,6],[60,10],[90,14],[120,16],[150,18],[180,20],[210,22],[240,24],[270,26],[300,28]];
 
   function n(v, f = 0) {
     const x = Number(v);
@@ -88,7 +88,13 @@
       const start = Number(t.toFixed(3));
       const end = i === list.length - 1 ? Number(safeTotal.toFixed(3)) : Number((t + step).toFixed(3));
       t = end;
-      return { mediaId: id, start, end, transition: "fade", effect: "clean" };
+      return {
+        mediaId: id,
+        start,
+        end,
+        transition: i % 4 === 0 ? "zoom-cut" : i % 3 === 0 ? "fade" : "cut",
+        effect: i % 5 === 0 ? "cinematic" : i % 2 === 0 ? "rap-light" : "clean"
+      };
     });
   }
 
@@ -104,26 +110,14 @@
     };
   }
 
-  function parseManifest(fd) {
-    try {
-      const parsed = JSON.parse(fd.get("mediaManifestJson") || "[]");
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-
   function findFileFieldName(fd) {
     if (!(fd instanceof FormData)) return "";
-
     for (const [key, value] of fd.entries()) {
       if (value instanceof Blob) return key;
     }
-
     for (const key of ["mediaFiles", "files", "videos", "media", "file"]) {
       if (fd.getAll(key).some(v => v instanceof Blob)) return key;
     }
-
     return "";
   }
 
@@ -227,7 +221,8 @@
     fd.set("candidatesJson", JSON.stringify(candidates));
     fd.set("wantedMediaCount", String(wanted));
     fd.set("forceWantedMediaCount", "true");
-    console.log(`Préparation médias ${VERSION} : ${candidates.length}/${wanted} candidats.`);
+    fd.set("timelineRule", VERSION);
+    console.log(`Préparation médias ${VERSION} : ${candidates.length}/${wanted} candidats pour ${duration}s.`);
   }
 
   function patchRenderFormData(fd) {
@@ -278,8 +273,9 @@
     fd.set("forceWantedMediaCount", "true");
     fd.set("forceFullDuration", "true");
     fd.set("renderDurationSec", String(duration));
+    fd.set("timelineRule", VERSION);
 
-    console.log(`Rendu médias ${VERSION} : champ=${fileField || "aucun"}, uploads=${existingUploads}, manifest=${manifest.length}, uniques=${uniqueSources}, objectif=${wanted}, durée=${duration}s.`);
+    console.log(`Timeline ${VERSION} : durée=${duration}s, médias=${wanted}, changement=${(duration / wanted).toFixed(1)}s, champ=${fileField || "aucun"}, uploads=${existingUploads}, uniques=${uniqueSources}.`);
   }
 
   async function improveProject(project) {
@@ -349,5 +345,5 @@
   };
 
   window.getSmartMediaCount = wantedCount;
-  console.log(`Ajustement préparation + rendu médias ${VERSION} actif.`);
+  console.log(`Timeline médias ${VERSION} active jusqu'à 5 minutes.`);
 })();
