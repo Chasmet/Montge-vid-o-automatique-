@@ -1,15 +1,15 @@
 {
   "name": "montage-ia-mobile-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend OpenAI voix + rendu vidéo FFmpeg pour Montage IA Mobile",
   "private": true,
-  "main": "server.js",
+  "main": "start.js",
   "type": "module",
   "engines": {
     "node": "20.x"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node start.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
