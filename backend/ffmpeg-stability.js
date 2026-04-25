@@ -24,11 +24,45 @@ function isMp4Output(args) {
   return last.endsWith(".mp4");
 }
 
+function isVideoSegmentCommand(args) {
+  if (!Array.isArray(args)) return false;
+  const joined = args.join(" ").toLowerCase();
+  return isMp4Output(args) && (joined.includes("scale=") || joined.includes("setsar=") || joined.includes("fade="));
+}
+
 function addBeforeOutput(args, extraArgs) {
   const copy = [...args];
   const outputIndex = copy.length - 1;
   copy.splice(outputIndex, 0, ...extraArgs);
   return copy;
+}
+
+function cleanBlackIntroFilter(value) {
+  if (typeof value !== "string") return value;
+
+  let next = value;
+
+  next = next
+    .replace(/,?fade=t=in:st=0(?::d=[0-9.]+)?/gi, "")
+    .replace(/,?fade=type=in:start_time=0(?::duration=[0-9.]+)?/gi, "")
+    .replace(/,?fade=in:st=0(?::d=[0-9.]+)?/gi, "")
+    .replace(/,,+/g, ",")
+    .replace(/^,|,$/g, "");
+
+  return next || value;
+}
+
+function patchVideoFilters(args) {
+  if (!Array.isArray(args)) return args;
+  const next = [...args];
+
+  for (let i = 0; i < next.length; i += 1) {
+    if (["-vf", "-filter:v", "-filter_complex"].includes(next[i]) && typeof next[i + 1] === "string") {
+      next[i + 1] = cleanBlackIntroFilter(next[i + 1]);
+    }
+  }
+
+  return next;
 }
 
 function patchFfmpegArgs(args) {
@@ -38,6 +72,10 @@ function patchFfmpegArgs(args) {
 
   if (!hasArg(next, "-y")) {
     next.unshift("-y");
+  }
+
+  if (isVideoSegmentCommand(next)) {
+    next = patchVideoFilters(next);
   }
 
   if (isMp4Output(next) && !hasArg(next, "-movflags")) {
@@ -75,4 +113,4 @@ childProcess.spawn = function patchedSpawn(command, args = [], options = {}) {
   return originalSpawn.call(this, command, args, options);
 };
 
-console.log("FFmpeg stability patch actif : concat optimisé, faststart activé.");
+console.log("FFmpeg stability patch actif : concat optimisé, faststart activé, intro noire supprimée.");
