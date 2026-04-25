@@ -1,1 +1,123 @@
-:root{--bottom-height:112px;--safe-bottom:env(safe-area-inset-bottom,0px)}html,body{min-height:100%;overflow-x:hidden}body{padding-bottom:calc(24px + var(--safe-bottom))}.app-main,.app-shell,#screen,.screen,.panel{min-height:0}#screen{padding-bottom:calc(var(--bottom-height) + var(--safe-bottom) + 120px)!important}.screen{padding-bottom:calc(var(--bottom-height) + var(--safe-bottom) + 90px)!important}.panel{margin-bottom:calc(var(--bottom-height) + var(--safe-bottom) + 70px)!important}.media-grid,.card-list,.prompt-list,.stack-form,.settings-group{padding-bottom:28px}.result-box:last-child,.media-card:last-child,.project-card:last-child{margin-bottom:28px}#libraryMediaGrid{padding-bottom:calc(var(--bottom-height) + var(--safe-bottom) + 120px)!important}#bottomNav{bottom:calc(10px + var(--safe-bottom))!important;min-height:72px;grid-template-columns:repeat(3,minmax(0,1fr))!important}.bottom-tab{min-height:54px}.sticky-actions{bottom:calc(var(--bottom-height) + var(--safe-bottom) + 12px)!important}#toast{bottom:calc(var(--bottom-height) + var(--safe-bottom) + 22px)!important}@media(max-width:480px){#screen{padding-bottom:calc(var(--bottom-height) + var(--safe-bottom) + 145px)!important}.screen{padding-bottom:calc(var(--bottom-height) + var(--safe-bottom) + 115px)!important}.panel{margin-bottom:calc(var(--bottom-height) + var(--safe-bottom) + 90px)!important}#libraryMediaGrid{padding-bottom:calc(var(--bottom-height) + var(--safe-bottom) + 150px)!important}}
+/*
+  Correction structurelle mobile
+  But : supprimer le clipping en arrêtant de superposer la barre du bas au contenu.
+*/
+
+:root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html,
+body {
+  min-height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  padding-bottom: calc(18px + var(--safe-bottom)) !important;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.app-shell,
+#screen,
+.screen,
+.panel {
+  min-height: 0;
+}
+
+#screen {
+  padding-bottom: 34px !important;
+}
+
+.screen {
+  padding-bottom: 34px !important;
+}
+
+.panel {
+  overflow: visible !important;
+  margin-bottom: 28px !important;
+}
+
+.media-grid,
+.card-list,
+.prompt-list,
+.stack-form,
+.settings-group,
+#libraryMediaGrid {
+  padding-bottom: 30px !important;
+}
+
+.result-box:last-child,
+.media-card:last-child,
+.project-card:last-child {
+  margin-bottom: 24px !important;
+}
+
+/* La barre n'est plus fixe : elle ne cache plus jamais les médias ou boutons. */
+#bottomNav {
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  z-index: 10 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  width: auto !important;
+  margin: 12px 12px calc(18px + var(--safe-bottom)) !important;
+  min-height: 74px !important;
+  flex: 0 0 auto;
+}
+
+#bottomNav.hidden {
+  display: none !important;
+}
+
+.bottom-tab {
+  min-height: 56px !important;
+}
+
+/* Les boutons d'action ne flottent plus au-dessus du contenu. */
+.sticky-actions {
+  position: static !important;
+  bottom: auto !important;
+  z-index: 1 !important;
+  margin-top: 12px !important;
+}
+
+#toast {
+  bottom: calc(18px + var(--safe-bottom)) !important;
+}
+
+@media (max-width: 480px) {
+  #screen {
+    padding-bottom: 40px !important;
+  }
+
+  .screen {
+    padding-bottom: 40px !important;
+  }
+
+  .panel {
+    margin-bottom: 32px !important;
+  }
+
+  #bottomNav {
+    margin: 10px 8px calc(20px + var(--safe-bottom)) !important;
+    min-height: 76px !important;
+  }
+
+  #libraryMediaGrid {
+    padding-bottom: 42px !important;
+  }
+}
