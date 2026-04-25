@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  />
+  <meta name="theme-color" content="#0f1115" />
+  <meta
+    name="description"
+    content="Studio vidéo IA mobile pour créer des voix, montages et prompts vidéo."
+  />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <title>Studio vidéo IA</title>
+
+  <link rel="icon" type="image/png" href="logo.png" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="theme-dark">
+  <div id="app">
+    <header class="topbar" role="banner">
+      <div class="topbar-left">
+        <button
+          id="backButton"
+          class="icon-btn hidden"
+          type="button"
+          aria-label="Retour"
+          title="Retour"
+        >
+          ←
+        </button>
+
+        <div class="topbar-title-group">
+          <p class="eyebrow">Application personnelle</p>
+          <h1 id="appTitle">Studio vidéo IA</h1>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <button
+          id="themeToggle"
+          class="chip-btn"
+          type="button"
+          aria-label="Changer le thème"
+          title="Changer le thème"
+        >
+          Mode clair
+        </button>
+      </div>
+    </header>
+
+    <main class="app-main" role="main">
+      <section class="app-shell">
+        <div id="screen" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <nav
+      id="bottomNav"
+      class="bottom-nav hidden"
+      aria-label="Navigation principale"
+    >
+      <button
+        class="bottom-tab active"
+        type="button"
+        data-route="dashboard"
+        aria-label="Accueil"
+      >
+        Accueil
+      </button>
+
+      <button
+        class="bottom-tab"
+        type="button"
+        data-route="projects"
+        aria-label="Projets"
+      >
+        Projets
+      </button>
+
+      <button
+        class="bottom-tab"
+        type="button"
+        data-route="settings"
+        aria-label="Réglages"
+      >
+        Réglages
+      </button>
+    </nav>
+
+    <div
+      id="toast"
+      class="toast hidden"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+  </div>
+
+  <script src="script.js"></script>
+  <script src="chk-bridge.js"></script>
+</body>
+</html>
