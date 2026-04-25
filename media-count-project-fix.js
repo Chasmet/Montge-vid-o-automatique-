@@ -1,6 +1,6 @@
 /* Ajuste automatiquement le nombre de médias sauvegardés, préparés ET envoyés au rendu.
-   Correctif V16 : si le serveur garde une logique interne à 20 segments,
-   l'application répète proprement les médias disponibles au rendu pour couvrir toute la durée. */
+   Correctif V17 : privilégie toujours les médias uniques.
+   Répétition seulement en dernier recours si la bibliothèque ne contient pas assez de vidéos/images compatibles. */
 (function () {
   const RULES = [[30,6],[60,12],[90,15],[120,16],[150,18],[180,20],[210,22],[240,24],[270,26],[300,28]];
 
@@ -70,15 +70,55 @@
     });
   }
 
-  function mediaPool(project) {
+  function getAspect(project) {
+    return project?.config?.aspectRatio || 'vertical';
+  }
+
+  function sameOrientation(project, media) {
+    return orientationMatches(getAspect(project), media?.orientation || 'unknown');
+  }
+
+  function bucketName(project, mediaType) {
+    return getBucketForProject(project.type, mediaType);
+  }
+
+  function strictMediaPool(project) {
     const c = project.config || {};
     const mode = c.mode || 'video';
-    const aspect = c.aspectRatio || 'vertical';
-    const bucket = getBucketForProject(project.type, mode);
+    const bucket = bucketName(project, mode);
     return (state.cache.media || [])
       .filter(m => m.bucket === bucket)
       .filter(m => m.mediaType === mode)
-      .filter(m => orientationMatches(aspect, m.orientation || 'unknown'));
+      .filter(m => sameOrientation(project, m));
+  }
+
+  function broadMediaPools(project) {
+    const all = (state.cache.media || []).filter(m => m?.blob).filter(m => sameOrientation(project, m));
+    const projectVideoBucket = bucketName(project, 'video');
+    const projectImageBucket = bucketName(project, 'image');
+
+    return [
+      strictMediaPool(project).filter(m => m?.blob),
+      all.filter(m => m.bucket === projectVideoBucket && m.mediaType === 'video'),
+      all.filter(m => m.mediaType === 'video'),
+      all.filter(m => m.bucket === projectImageBucket && m.mediaType === 'image'),
+      all.filter(m => m.mediaType === 'image')
+    ];
+  }
+
+  function addUniqueMedia(target, medias, used, wanted) {
+    for (const media of shuffle(medias)) {
+      const id = String(media?.id || '');
+      if (!id || used.has(id)) continue;
+      target.push(media);
+      used.add(id);
+      if (target.length >= wanted) return true;
+    }
+    return target.length >= wanted;
+  }
+
+  function mediaPool(project) {
+    return strictMediaPool(project);
   }
 
   function pseudoProjectFromPrepare(fd) {
@@ -133,30 +173,27 @@
     return out;
   }
 
-  function chooseRenderMediaLoop(project, wanted) {
-    const pool = mediaPool(project).filter(m => m?.blob);
-    if (!pool.length) return [];
-
-    const uniqueIds = chooseIds(project, wanted);
+  function chooseRenderMedias(project, wanted) {
     const ordered = [];
     const used = new Set();
+    const existingIds = cleanIds(project.config?.selectedMediaIds || project.config?.montagePlan?.selectedMediaIds || []);
+    const all = (state.cache.media || []).filter(m => m?.blob).filter(m => sameOrientation(project, m));
 
-    for (const id of uniqueIds) {
-      const media = pool.find(m => String(m.id) === String(id));
+    for (const id of existingIds) {
+      const media = all.find(m => String(m.id) === String(id));
       if (!media || used.has(String(media.id))) continue;
       ordered.push(media);
       used.add(String(media.id));
-      if (ordered.length >= wanted) return ordered;
+      if (ordered.length >= wanted) return { medias: ordered, uniqueCount: ordered.length, repeated: false };
     }
 
-    for (const media of shuffle(pool)) {
-      if (!media?.id || used.has(String(media.id))) continue;
-      ordered.push(media);
-      used.add(String(media.id));
-      if (ordered.length >= wanted) return ordered;
+    for (const pool of broadMediaPools(project)) {
+      if (addUniqueMedia(ordered, pool, used, wanted)) {
+        return { medias: ordered.slice(0, wanted), uniqueCount: ordered.length, repeated: false };
+      }
     }
 
-    const base = ordered.length ? ordered : shuffle(pool);
+    const base = ordered.length ? ordered : shuffle(all);
     const expanded = [...base];
     let i = 0;
     while (expanded.length < wanted && base.length) {
@@ -164,7 +201,11 @@
       i += 1;
     }
 
-    return expanded.slice(0, wanted);
+    return {
+      medias: expanded.slice(0, wanted),
+      uniqueCount: new Set(expanded.map(m => String(m?.id || ''))).size,
+      repeated: expanded.length > new Set(expanded.map(m => String(m?.id || ''))).size
+    };
   }
 
   function mediaCandidate(media) {
@@ -186,19 +227,14 @@
 
     const duration = durationFromFormData(fd) || 30;
     const wanted = wantedCount(duration);
-    const ids = chooseIds(project, wanted);
-    if (!ids.length) return;
-
-    const candidates = ids
-      .map(id => (state.cache.media || []).find(m => String(m.id) === String(id)))
-      .filter(Boolean)
-      .map(mediaCandidate);
+    const renderChoice = chooseRenderMedias(project, wanted);
+    const candidates = renderChoice.medias.slice(0, wanted).map(mediaCandidate);
 
     if (candidates.length) {
       fd.set('candidatesJson', JSON.stringify(candidates));
       fd.set('wantedMediaCount', String(wanted));
       fd.set('forceWantedMediaCount', 'true');
-      console.log(`Préparation corrigée : ${candidates.length} candidats envoyés, objectif serveur ${wanted}.`);
+      console.log(`Préparation corrigée V17 : ${candidates.length} candidats, uniques=${renderChoice.uniqueCount}, objectif=${wanted}.`);
     }
   }
 
@@ -227,41 +263,43 @@
 
     const duration = durationFromFormData(fd) || durationOfProject(project);
     const wanted = wantedCount(duration);
-    const renderMedias = chooseRenderMediaLoop(project, wanted);
+    const choice = chooseRenderMedias(project, wanted);
+    const renderMedias = choice.medias;
     if (!renderMedias.length) return;
 
     let manifest = parseManifest(fd);
-    const currentCount = manifest.length;
     const existingUploads = fd.getAll('media').length;
 
-    if (currentCount >= wanted && existingUploads >= wanted) {
+    if (manifest.length >= wanted && existingUploads >= wanted) {
       fd.set('timelineJson', JSON.stringify(makeTimeline(manifest.map(m => m.id), duration)));
       fd.set('wantedMediaCount', String(wanted));
       fd.set('forceWantedMediaCount', 'true');
       fd.set('forceFullDuration', 'true');
-      console.log(`Rendu déjà complet : ${currentCount}/${wanted} médias.`);
+      console.log(`Rendu déjà complet V17 : ${manifest.length}/${wanted} médias.`);
       return;
     }
 
+    const previousManifestCount = manifest.length;
     const alreadyIds = new Set(manifest.map(m => String(m.id || '')));
     let uploadIndex = existingUploads;
 
-    for (let i = currentCount; i < wanted; i += 1) {
+    manifest = [];
+    for (let i = 0; i < wanted; i += 1) {
       const media = renderMedias[i % renderMedias.length];
       if (!media?.blob) continue;
 
       const baseId = String(media.id || `media_${i}`);
-      let renderId = baseId;
-      if (alreadyIds.has(renderId)) {
-        renderId = `${baseId}__loop_${i + 1}`;
-      }
+      const isDuplicateSource = manifest.some(m => String(m.sourceId || m.id) === baseId);
+      let renderId = isDuplicateSource ? `${baseId}__loop_${i + 1}` : baseId;
+
       while (alreadyIds.has(renderId)) {
         renderId = `${baseId}__loop_${i + 1}_${Math.random().toString(36).slice(2, 6)}`;
       }
 
       const ext = String(media.fileName || '').split('.').pop() || (media.mediaType === 'image' ? 'png' : 'mp4');
       const safeName = media.fileName || `${baseId}.${ext}`;
-      const uploadName = `loop_${String(i + 1).padStart(2, '0')}_${safeName}`;
+      const prefix = media.mediaType === 'image' ? 'image' : 'video';
+      const uploadName = `${prefix}_${String(i + 1).padStart(2, '0')}_${safeName}`;
 
       fd.append('media', media.blob, uploadName);
       manifest.push({
@@ -271,13 +309,16 @@
         originalFileName: media.fileName || uploadName,
         mediaType: media.mediaType,
         block: media.block || 'Vrac',
-        looped: renderId !== baseId
+        looped: isDuplicateSource
       });
       alreadyIds.add(renderId);
       uploadIndex += 1;
     }
 
     const finalIds = manifest.map(m => m.id).filter(Boolean);
+    const uniqueSources = new Set(manifest.map(m => String(m.sourceId || m.id))).size;
+    const repeated = manifest.length > uniqueSources;
+
     fd.set('mediaManifestJson', JSON.stringify(manifest));
     fd.set('timelineJson', JSON.stringify(makeTimeline(finalIds, duration)));
     fd.set('wantedMediaCount', String(wanted));
@@ -285,7 +326,7 @@
     fd.set('forceFullDuration', 'true');
     fd.set('renderDurationSec', String(duration));
 
-    console.log(`Rendu corrigé V16 : uploads=${uploadIndex}, manifest=${manifest.length}, objectif=${wanted}, durée=${duration}s.`);
+    console.log(`Rendu corrigé V17 : manifestAvant=${previousManifestCount}, uploads=${uploadIndex}, manifest=${manifest.length}, uniques=${uniqueSources}, repetition=${repeated ? 'oui' : 'non'}, objectif=${wanted}, durée=${duration}s.`);
   }
 
   async function improveProject(project) {
@@ -295,7 +336,8 @@
     const current = cleanIds(project.config?.selectedMediaIds || []);
     if (current.length >= wanted) return false;
 
-    const ids = chooseIds(project, wanted);
+    const choice = chooseRenderMedias(project, wanted);
+    const ids = cleanIds(choice.medias.map(m => m.id));
     if (ids.length <= current.length) return false;
 
     const next = {
@@ -355,5 +397,5 @@
   };
 
   window.getSmartMediaCount = wantedCount;
-  console.log('Ajustement préparation + rendu médias V16 actif');
+  console.log('Ajustement préparation + rendu médias V17 actif');
 })();
