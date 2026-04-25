@@ -1,6 +1,6 @@
 {
   "name": "montage-ia-mobile-backend",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Backend OpenAI voix + rendu vidéo FFmpeg pour Montage IA Mobile",
   "private": true,
   "main": "start.js",
@@ -18,6 +18,7 @@
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
     "multer": "^1.4.5-lts.1",
-    "openai": "^5.20.2"
+    "openai": "^5.20.2",
+    "readable-stream": "^4.7.0"
   }
 }
