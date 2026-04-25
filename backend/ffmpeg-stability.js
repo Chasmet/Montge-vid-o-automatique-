@@ -4,6 +4,8 @@ const require = createRequire(import.meta.url);
 const childProcess = require("child_process");
 const originalSpawn = childProcess.spawn;
 
+const STYLE_VERSION = "V18";
+
 function isFfmpegCommand(command) {
   return String(command || "").toLowerCase().includes("ffmpeg");
 }
@@ -52,13 +54,29 @@ function cleanBlackIntroFilter(value) {
   return next || value;
 }
 
+function hasVisualStyle(value) {
+  const clean = String(value || "").toLowerCase();
+  return clean.includes("eq=") || clean.includes("unsharp=") || clean.includes("fps=");
+}
+
+function addLightVideoStyle(value) {
+  if (typeof value !== "string") return value;
+  if (hasVisualStyle(value)) return value;
+
+  const base = cleanBlackIntroFilter(value);
+  const style = "eq=contrast=1.04:saturation=1.06,unsharp=3:3:0.25";
+
+  if (!base) return style;
+  return `${base},${style}`;
+}
+
 function patchVideoFilters(args) {
   if (!Array.isArray(args)) return args;
   const next = [...args];
 
   for (let i = 0; i < next.length; i += 1) {
     if (["-vf", "-filter:v", "-filter_complex"].includes(next[i]) && typeof next[i + 1] === "string") {
-      next[i + 1] = cleanBlackIntroFilter(next[i + 1]);
+      next[i + 1] = addLightVideoStyle(next[i + 1]);
     }
   }
 
@@ -113,4 +131,4 @@ childProcess.spawn = function patchedSpawn(command, args = [], options = {}) {
   return originalSpawn.call(this, command, args, options);
 };
 
-console.log("FFmpeg stability patch actif : concat optimisé, faststart activé, intro noire supprimée.");
+console.log(`FFmpeg stability patch ${STYLE_VERSION} actif : concat optimisé, faststart activé, intro noire supprimée, style clip léger activé.`);
