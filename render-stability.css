@@ -1,0 +1,203 @@
+/*
+  Stabilisation rendu Android / Chrome mobile
+  Objectif : supprimer les bugs de repaint, chevauchements visuels, traces au scroll et saccades.
+  Cause probable : mélange de fixed, sticky, blur, backdrop-filter, animations et ombres lourdes.
+*/
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+  scroll-behavior: auto !important;
+}
+
+body::before,
+body::after,
+.hero-card::before,
+.hero-card::after,
+.ux-final-card::before,
+.ux-final-card::after,
+.ux-tab::after,
+.ux-btn::after,
+.primary-btn::after,
+.secondary-btn::after,
+.chip-btn::after,
+.prompt-actions button::after,
+.project-actions button::after,
+.ux-icon::after,
+.ux-album-icon::after,
+.action-icon::after,
+.ux-album::before,
+.ux-empty::before,
+.empty-state::before {
+  animation: none !important;
+  transition: none !important;
+}
+
+body::before,
+body::after {
+  display: none !important;
+  content: none !important;
+}
+
+.topbar,
+#bottomNav,
+.sticky-actions,
+.status-shell,
+.hero-card,
+.ux-final-card,
+.ux-row-card,
+.ux-album,
+.result-box,
+.project-card,
+.media-card,
+.panel,
+.profile-card,
+.action-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transform: none !important;
+  will-change: auto !important;
+}
+
+#app,
+.app-main,
+.app-shell,
+#screen,
+.screen,
+.panel {
+  position: relative !important;
+  isolation: auto !important;
+}
+
+#screen,
+.screen,
+.stack-form,
+.card-list,
+.media-grid,
+#libraryMediaGrid,
+.ux-final-shell,
+.ux-list,
+.ux-album-grid {
+  display: block !important;
+  overflow: visible !important;
+  contain: none !important;
+}
+
+.media-grid,
+#libraryMediaGrid,
+.ux-album-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: start !important;
+}
+
+.card-list,
+.ux-list,
+.stack-form,
+.ux-final-shell {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  align-items: start !important;
+}
+
+.ux-row-card,
+.ux-album,
+.media-card,
+.result-box,
+.project-card,
+.panel,
+.hero-card,
+.ux-final-card {
+  position: relative !important;
+  z-index: auto !important;
+  clear: both !important;
+  contain: layout paint !important;
+}
+
+.ux-row-card + .ux-row-card,
+.ux-album + .ux-album,
+.media-card + .media-card,
+.result-box + .result-box,
+.project-card + .project-card {
+  margin-top: 0 !important;
+}
+
+.ux-final-card,
+.ux-row-card,
+.ux-album,
+.media-card,
+.result-box,
+.project-card,
+.panel {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.18) !important;
+}
+
+.ux-album:active,
+.profile-card:active,
+.action-card:active,
+.primary-btn:active,
+.secondary-btn:active,
+.chip-btn:active,
+.prompt-actions button:active,
+.project-actions button:active,
+.segment-btn:active {
+  transform: none !important;
+}
+
+.topbar {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+#bottomNav {
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.ux-title,
+.ux-desc,
+.ux-kicker,
+.hero-card h2,
+.hero-text,
+.hero-kicker,
+.ux-album-icon,
+.ux-album-name,
+.ux-album-meta {
+  max-width: 100% !important;
+}
+
+img,
+video {
+  transform: none !important;
+  will-change: auto !important;
+  backface-visibility: visible !important;
+}
+
+.media-card img,
+.media-card video,
+.media-preview-button {
+  display: block !important;
+  width: 100% !important;
+  object-fit: cover !important;
+}
+
+@media (max-width: 430px) {
+  .ux-title {
+    max-width: 100% !important;
+  }
+
+  .hero-card::before,
+  .ux-final-card.green::before,
+  .ux-final-card.blue::before,
+  .hero-card::after,
+  .ux-final-card::after {
+    display: none !important;
+    content: none !important;
+  }
+}
