@@ -1,0 +1,142 @@
+/*
+  Correction définitive clipping mobile
+  Problème vu sur vidéo : le contenu passe sous la barre du haut quand on scrolle.
+  Solution : aucune barre flottante au-dessus du contenu.
+*/
+
+html,
+body {
+  height: auto !important;
+  min-height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+body {
+  padding-top: 0 !important;
+  padding-bottom: 28px !important;
+}
+
+#app {
+  min-height: 100vh !important;
+  height: auto !important;
+  overflow: visible !important;
+  display: block !important;
+}
+
+.topbar,
+header,
+.app-header {
+  position: static !important;
+  top: auto !important;
+  z-index: 1 !important;
+  transform: none !important;
+}
+
+.app-main,
+.app-shell,
+#screen,
+.screen,
+.panel,
+.stack-form,
+.ux-final-shell,
+.ux-final-card,
+.result-box,
+.media-grid,
+#libraryMediaGrid {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+.app-main {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+#screen {
+  padding-top: 14px !important;
+  padding-bottom: 120px !important;
+}
+
+.screen {
+  padding-top: 0 !important;
+  padding-bottom: 80px !important;
+}
+
+.panel {
+  margin-top: 0 !important;
+  margin-bottom: 36px !important;
+}
+
+.ux-final-shell {
+  margin-top: 16px !important;
+  margin-bottom: 22px !important;
+}
+
+.ux-final-card {
+  scroll-margin-top: 18px !important;
+}
+
+.ux-final-card.green {
+  padding-top: 20px !important;
+}
+
+.ux-title {
+  padding-top: 2px !important;
+  line-height: 1.14 !important;
+}
+
+.ux-list,
+.ux-album-grid,
+.card-list,
+.media-grid,
+#libraryMediaGrid {
+  padding-bottom: 72px !important;
+}
+
+#bottomNav {
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  z-index: 1 !important;
+  margin: 12px 10px 28px !important;
+}
+
+.sticky-actions {
+  position: static !important;
+  bottom: auto !important;
+  z-index: 1 !important;
+}
+
+#toast {
+  position: fixed !important;
+  bottom: 22px !important;
+  z-index: 9999 !important;
+}
+
+@media (max-width: 480px) {
+  #screen {
+    padding-top: 12px !important;
+    padding-bottom: 130px !important;
+  }
+
+  .screen {
+    padding-bottom: 90px !important;
+  }
+
+  .ux-list,
+  .ux-album-grid,
+  .card-list,
+  .media-grid,
+  #libraryMediaGrid {
+    padding-bottom: 86px !important;
+  }
+
+  #bottomNav {
+    margin: 10px 8px 30px !important;
+  }
+}
