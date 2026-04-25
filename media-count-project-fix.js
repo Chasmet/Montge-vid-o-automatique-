@@ -1,4 +1,4 @@
-/* Ajuste automatiquement le nombre de médias sauvegardés ET envoyés au rendu. */
+/* Ajuste automatiquement le nombre de médias sauvegardés, préparés ET envoyés au rendu. */
 (function () {
   const RULES = [[30,6],[60,12],[90,15],[120,16],[150,18],[180,20],[210,22],[240,24],[270,26],[300,28]];
 
@@ -78,6 +78,22 @@
       .filter(m => orientationMatches(aspect, m.orientation || 'unknown'));
   }
 
+  function pseudoProjectFromPrepare(fd) {
+    return {
+      id: 'prepare',
+      type: String(fd.get('projectType') || 'music'),
+      name: String(fd.get('title') || ''),
+      config: {
+        mode: String(fd.get('mode') || 'video'),
+        aspectRatio: String(fd.get('aspectRatio') || 'vertical'),
+        audioStart: n(fd.get('audioStartSec'), 0),
+        audioEnd: n(fd.get('audioEndSec'), 0),
+        targetDuration: n(fd.get('targetDurationSec'), 30),
+        selectedMediaIds: []
+      }
+    };
+  }
+
   function chooseIds(project, wanted) {
     const pool = mediaPool(project);
     const existing = cleanIds(project.config?.selectedMediaIds || project.config?.montagePlan?.selectedMediaIds || []);
@@ -112,6 +128,41 @@
     }
 
     return out;
+  }
+
+  function mediaCandidate(media) {
+    return {
+      id: media.id,
+      fileName: media.fileName,
+      block: media.block,
+      orientation: media.orientation,
+      mediaType: media.mediaType,
+      tags: Array.isArray(media.tags) ? media.tags : [],
+      createdAt: media.createdAt || ''
+    };
+  }
+
+  function patchPrepareCandidates(fd) {
+    if (!(fd instanceof FormData)) return;
+    const project = pseudoProjectFromPrepare(fd);
+    if (project.type !== 'music') return;
+
+    const duration = durationFromFormData(fd) || 30;
+    const wanted = wantedCount(duration);
+    const ids = chooseIds(project, wanted);
+    if (!ids.length) return;
+
+    const candidates = ids
+      .map(id => (state.cache.media || []).find(m => String(m.id) === String(id)))
+      .filter(Boolean)
+      .map(mediaCandidate);
+
+    if (candidates.length) {
+      fd.set('candidatesJson', JSON.stringify(candidates));
+      fd.set('wantedMediaCount', String(wanted));
+      fd.set('forceWantedMediaCount', 'true');
+      console.log(`Préparation corrigée : ${candidates.length} candidats envoyés.`);
+    }
   }
 
   function projectForRenderFormData(fd) {
@@ -212,18 +263,21 @@
   }, 2500);
 
   const previousFetch = window.fetch.bind(window);
-  window.fetch = function patchedRenderFetch(resource, options = {}) {
+  window.fetch = function patchedMediaCountFetch(resource, options = {}) {
     try {
       const url = typeof resource === 'string' ? resource : resource?.url || '';
+      if (url.includes('/api/project/prepare') && options.body instanceof FormData) {
+        patchPrepareCandidates(options.body);
+      }
       if (url.includes('/api/render/video') && options.body instanceof FormData) {
         appendMissingRenderMedia(options.body);
       }
     } catch (e) {
-      console.warn('render media send fix', e);
+      console.warn('media count send fix', e);
     }
     return previousFetch(resource, options);
   };
 
   window.getSmartMediaCount = wantedCount;
-  console.log('Ajustement projets + envoi rendu médias actif');
+  console.log('Ajustement préparation + rendu médias actif');
 })();
