@@ -4,7 +4,7 @@ const require = createRequire(import.meta.url);
 const childProcess = require("child_process");
 const originalSpawn = childProcess.spawn;
 
-const STYLE_VERSION = "V18";
+const STYLE_VERSION = "V18.1 SPEED";
 
 function isFfmpegCommand(command) {
   return String(command || "").toLowerCase().includes("ffmpeg");
@@ -59,12 +59,12 @@ function hasVisualStyle(value) {
   return clean.includes("eq=") || clean.includes("unsharp=") || clean.includes("fps=");
 }
 
-function addLightVideoStyle(value) {
+function addFastLightVideoStyle(value) {
   if (typeof value !== "string") return value;
-  if (hasVisualStyle(value)) return value;
+  if (hasVisualStyle(value)) return cleanBlackIntroFilter(value);
 
   const base = cleanBlackIntroFilter(value);
-  const style = "eq=contrast=1.04:saturation=1.06,unsharp=3:3:0.25";
+  const style = "eq=contrast=1.025:saturation=1.035";
 
   if (!base) return style;
   return `${base},${style}`;
@@ -76,8 +76,37 @@ function patchVideoFilters(args) {
 
   for (let i = 0; i < next.length; i += 1) {
     if (["-vf", "-filter:v", "-filter_complex"].includes(next[i]) && typeof next[i + 1] === "string") {
-      next[i + 1] = addLightVideoStyle(next[i + 1]);
+      next[i + 1] = addFastLightVideoStyle(next[i + 1]);
     }
+  }
+
+  return next;
+}
+
+function patchEncodingSpeed(args) {
+  if (!Array.isArray(args) || !isMp4Output(args)) return args;
+
+  let next = [...args];
+  const hasVideoCodec = hasArg(next, "-c:v") || hasArg(next, "-codec:v");
+  const hasPreset = hasArg(next, "-preset");
+  const hasCrf = hasArg(next, "-crf");
+  const hasPixFmt = hasArg(next, "-pix_fmt");
+  const hasThreads = hasArg(next, "-threads");
+
+  if (!hasVideoCodec) {
+    next = addBeforeOutput(next, ["-c:v", "libx264"]);
+  }
+  if (!hasPreset) {
+    next = addBeforeOutput(next, ["-preset", "ultrafast"]);
+  }
+  if (!hasCrf) {
+    next = addBeforeOutput(next, ["-crf", "29"]);
+  }
+  if (!hasPixFmt) {
+    next = addBeforeOutput(next, ["-pix_fmt", "yuv420p"]);
+  }
+  if (!hasThreads) {
+    next = addBeforeOutput(next, ["-threads", "2"]);
   }
 
   return next;
@@ -94,6 +123,7 @@ function patchFfmpegArgs(args) {
 
   if (isVideoSegmentCommand(next)) {
     next = patchVideoFilters(next);
+    next = patchEncodingSpeed(next);
   }
 
   if (isMp4Output(next) && !hasArg(next, "-movflags")) {
@@ -101,22 +131,7 @@ function patchFfmpegArgs(args) {
   }
 
   if (isConcatCommand(next) && isMp4Output(next)) {
-    const hasVideoCodec = hasArg(next, "-c:v") || hasArg(next, "-codec:v");
-    const hasPreset = hasArg(next, "-preset");
-    const hasCrf = hasArg(next, "-crf");
-
-    if (!hasVideoCodec) {
-      next = addBeforeOutput(next, ["-c:v", "libx264"]);
-    }
-    if (!hasPreset) {
-      next = addBeforeOutput(next, ["-preset", "ultrafast"]);
-    }
-    if (!hasCrf) {
-      next = addBeforeOutput(next, ["-crf", "28"]);
-    }
-    if (!hasArg(next, "-pix_fmt")) {
-      next = addBeforeOutput(next, ["-pix_fmt", "yuv420p"]);
-    }
+    next = patchEncodingSpeed(next);
   }
 
   return next;
@@ -131,4 +146,4 @@ childProcess.spawn = function patchedSpawn(command, args = [], options = {}) {
   return originalSpawn.call(this, command, args, options);
 };
 
-console.log(`FFmpeg stability patch ${STYLE_VERSION} actif : concat optimisé, faststart activé, intro noire supprimée, style clip léger activé.`);
+console.log(`FFmpeg stability patch ${STYLE_VERSION} actif : rendu accéléré, concat optimisé, faststart activé, intro noire supprimée.`);
