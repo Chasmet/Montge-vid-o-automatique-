@@ -1,7 +1,7 @@
-/* V18.4 - Timeline dynamique jusqu'à 5 minutes.
-   Objectif : changer régulièrement de média, même à 1 minute, sans dépasser Render. */
+/* V18.5 - Timeline dynamique + upload médias corrigé.
+   Corrige le vrai problème : ne plus confondre l'audio avec les vidéos/images dans FormData. */
 (function () {
-  const VERSION = "V18.4";
+  const VERSION = "V18.5";
   const RULES = [[30,6],[60,10],[90,14],[120,16],[150,18],[180,20],[210,22],[240,24],[270,26],[300,28]];
 
   function n(v, f = 0) {
@@ -110,15 +110,48 @@
     };
   }
 
-  function findFileFieldName(fd) {
+  function isAudioBlob(value) {
+    const type = String(value?.type || "").toLowerCase();
+    const name = String(value?.name || "").toLowerCase();
+    return type.startsWith("audio/") || /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(name);
+  }
+
+  function isVisualBlob(value) {
+    const type = String(value?.type || "").toLowerCase();
+    const name = String(value?.name || "").toLowerCase();
+    return type.startsWith("video/") || type.startsWith("image/") || /\.(mp4|mov|webm|m4v|png|jpg|jpeg|webp)$/i.test(name);
+  }
+
+  function findMediaFileFieldName(fd) {
     if (!(fd instanceof FormData)) return "";
+
+    const stats = new Map();
     for (const [key, value] of fd.entries()) {
-      if (value instanceof Blob) return key;
+      if (!(value instanceof Blob)) continue;
+      const item = stats.get(key) || { visual: 0, audio: 0, total: 0 };
+      item.total += 1;
+      if (isVisualBlob(value)) item.visual += 1;
+      if (isAudioBlob(value)) item.audio += 1;
+      stats.set(key, item);
     }
-    for (const key of ["mediaFiles", "files", "videos", "media", "file"]) {
-      if (fd.getAll(key).some(v => v instanceof Blob)) return key;
+
+    const preferred = ["mediaFiles", "videos", "media", "files", "visuals", "assets", "file"];
+    for (const key of preferred) {
+      const item = stats.get(key);
+      if (item && item.visual > 0 && item.visual >= item.audio) return key;
     }
-    return "";
+
+    let bestKey = "";
+    let bestScore = 0;
+    for (const [key, item] of stats.entries()) {
+      const score = item.visual * 10 + item.total - item.audio * 20;
+      if (score > bestScore) {
+        bestScore = score;
+        bestKey = key;
+      }
+    }
+
+    return bestKey;
   }
 
   function projectForFormData(fd) {
@@ -225,17 +258,36 @@
     console.log(`Préparation médias ${VERSION} : ${candidates.length}/${wanted} candidats pour ${duration}s.`);
   }
 
+  function appendExactMediaFiles(fd, fileField, medias, wanted) {
+    if (!fileField) return 0;
+    fd.delete(fileField);
+
+    let added = 0;
+    for (let i = 0; i < wanted; i += 1) {
+      const media = medias[i % medias.length];
+      if (!media?.blob) continue;
+      const baseId = String(media.id || `media_${i}`);
+      const ext = String(media.fileName || "").split(".").pop() || (media.mediaType === "image" ? "png" : "mp4");
+      const safeName = media.fileName || `${baseId}.${ext}`;
+      const uploadName = `${media.mediaType === "image" ? "image" : "video"}_${String(i + 1).padStart(2, "0")}_${safeName}`;
+      fd.append(fileField, media.blob, uploadName);
+      added += 1;
+    }
+    return added;
+  }
+
   function patchRenderFormData(fd) {
     const project = projectForFormData(fd);
     if (!project) return;
 
     const duration = durationFromFormData(fd) || durationOfProject(project);
     const wanted = wantedCount(duration);
-    const fileField = findFileFieldName(fd);
-    const existingUploads = fileField ? fd.getAll(fileField).filter(v => v instanceof Blob).length : 0;
+    const fileField = findMediaFileFieldName(fd);
+    const beforeUploads = fileField ? fd.getAll(fileField).filter(v => v instanceof Blob).length : 0;
     const medias = chooseRenderMedias(project, wanted);
     if (!medias.length) return;
 
+    const uploaded = appendExactMediaFiles(fd, fileField, medias, wanted);
     const manifest = [];
     const sourceCount = new Map();
 
@@ -248,10 +300,6 @@
       const ext = String(media.fileName || "").split(".").pop() || (media.mediaType === "image" ? "png" : "mp4");
       const safeName = media.fileName || `${baseId}.${ext}`;
       const uploadName = `${media.mediaType === "image" ? "image" : "video"}_${String(i + 1).padStart(2, "0")}_${safeName}`;
-
-      if (fileField && existingUploads < wanted && i >= existingUploads && media.blob) {
-        fd.append(fileField, media.blob, uploadName);
-      }
 
       manifest.push({
         id: renderId,
@@ -275,7 +323,7 @@
     fd.set("renderDurationSec", String(duration));
     fd.set("timelineRule", VERSION);
 
-    console.log(`Timeline ${VERSION} : durée=${duration}s, médias=${wanted}, changement=${(duration / wanted).toFixed(1)}s, champ=${fileField || "aucun"}, uploads=${existingUploads}, uniques=${uniqueSources}.`);
+    console.log(`Timeline ${VERSION} : durée=${duration}s, médias=${wanted}, changement=${(duration / wanted).toFixed(1)}s, champMedia=${fileField || "aucun"}, avant=${beforeUploads}, envoyé=${uploaded}, uniques=${uniqueSources}.`);
   }
 
   async function improveProject(project) {
@@ -345,5 +393,5 @@
   };
 
   window.getSmartMediaCount = wantedCount;
-  console.log(`Timeline médias ${VERSION} active jusqu'à 5 minutes.`);
+  console.log(`Timeline médias ${VERSION} active : upload vidéo/image corrigé jusqu'à 5 minutes.`);
 })();
