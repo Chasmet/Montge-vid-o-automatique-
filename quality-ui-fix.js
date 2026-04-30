@@ -1,33 +1,59 @@
-/* Amélioration netteté vidéo gratuite - FFmpeg - V27 ordre pipeline */
+/* Amélioration netteté vidéo gratuite - V32 : Propre HD automatique, Ultra 1080p manuel */
 (function () {
   const choiceKey = 'video_sharpness_choice_v1';
-  const labels = { normal: 'Normal', propre: 'Propre HD', ultra: 'Ultra net 1080p' };
+  const labels = { normal: 'Normal', propre: 'Propre HD automatique', ultra: 'Ultra net 1080p manuel' };
   const running = new Set();
 
   function ready() { try { return typeof state !== 'undefined' && typeof render === 'function'; } catch { return false; } }
-  function getChoice() { try { const raw = localStorage.getItem(choiceKey); const parsed = raw ? JSON.parse(raw) : null; return parsed?.mode || 'propre'; } catch { return 'propre'; } }
-  function saveChoice(mode) { try { localStorage.setItem(choiceKey, JSON.stringify({ mode })); } catch {} }
+
+  function getChoice() {
+    try {
+      const raw = localStorage.getItem(choiceKey);
+      const parsed = raw ? JSON.parse(raw) : null;
+      const mode = parsed?.mode || 'propre';
+      return ['normal', 'propre', 'ultra'].includes(mode) ? mode : 'propre';
+    } catch {
+      return 'propre';
+    }
+  }
+
+  function getAutoChoice() {
+    const mode = getChoice();
+    return mode === 'ultra' ? 'propre' : mode;
+  }
+
+  function saveChoice(mode) {
+    try { localStorage.setItem(choiceKey, JSON.stringify({ mode })); } catch {}
+  }
+
   function toast(message) { if (typeof showToast === 'function') showToast(message); else alert(message); }
   function activeProject() { if (!ready() || !state.currentResultId) return null; return (state.cache.projects || []).find(p => p.id === state.currentResultId) || null; }
   async function getMedia(id) { if (!id) return null; if (typeof mediaGetById === 'function') return await mediaGetById(id); return (state.cache.media || []).find(m => m.id === id) || null; }
   async function saveProject(project) { if (typeof projectPut !== 'function') throw new Error('Sauvegarde projet indisponible.'); await projectPut(project); if (typeof hydrateCache === 'function') await hydrateCache(); }
 
-  function options(selected) {
+  function autoOptions(selected) {
     return `
+      <option value="propre" ${selected === 'propre' ? 'selected' : ''}>Propre HD automatique</option>
       <option value="normal" ${selected === 'normal' ? 'selected' : ''}>Normal rapide</option>
-      <option value="propre" ${selected === 'propre' ? 'selected' : ''}>Propre HD recommandé</option>
-      <option value="ultra" ${selected === 'ultra' ? 'selected' : ''}>Ultra net 1080p</option>
+    `;
+  }
+
+  function resultOptions(selected) {
+    return `
+      <option value="propre" ${selected === 'propre' ? 'selected' : ''}>Propre HD automatique</option>
+      <option value="normal" ${selected === 'normal' ? 'selected' : ''}>Normal rapide</option>
+      <option value="ultra" ${selected === 'ultra' ? 'selected' : ''}>Ultra net 1080p manuel</option>
     `;
   }
 
   function preBox() {
-    const mode = getChoice();
+    const mode = getAutoChoice();
     return `
       <div class="result-box" id="videoQualityChoiceBox">
         <div class="result-box-head"><h3>✨ Netteté vidéo</h3></div>
-        <p class="small-note">Amélioration gratuite avec FFmpeg. Si les sous-titres sont activés, la netteté se fait avant l’incrustation.</p>
-        <label class="field"><span>Qualité visuelle finale</span><select id="videoSharpnessBeforeRender">${options(mode)}</select></label>
-        <p class="small-note">Mode actuel : ${labels[mode] || mode}. Ultra net est plus lent sur Render gratuit.</p>
+        <p class="small-note">Par défaut, l’application applique automatiquement Propre HD après le rendu. Le mode Ultra net 1080p se lance manuellement sur l’écran résultat.</p>
+        <label class="field"><span>Netteté automatique</span><select id="videoSharpnessBeforeRender">${autoOptions(mode)}</select></label>
+        <p class="small-note">Mode automatique actuel : ${labels[mode] || mode}. Recommandé : Propre HD automatique.</p>
       </div>
     `;
   }
@@ -36,12 +62,13 @@
     const mode = project?.config?.videoSharpnessMode || getChoice();
     const doneMode = project?.config?.enhancedVideoMode || '';
     const videoReady = !!project?.config?.finalVideoMediaId;
+    const manualText = mode === 'ultra' ? 'Ultra 1080p est manuel : appuie sur le bouton pour l’appliquer.' : 'Propre HD s’applique automatiquement après le rendu.';
     return `
       <div class="result-box" id="videoQualityResultBox">
         <div class="result-box-head"><h3>✨ Netteté vidéo</h3></div>
-        <p class="small-note">${doneMode ? `Vidéo améliorée : ${labels[doneMode] || doneMode}. Les sous-titres seront incrustés après.` : 'Après le rendu, l’app applique la netteté choisie avant les sous-titres.'}</p>
-        <label class="field"><span>Qualité visuelle</span><select id="videoSharpnessResult">${options(mode)}</select></label>
-        <div class="prompt-actions"><button type="button" class="primary-btn" data-action="enhance-video-now" ${videoReady ? '' : 'disabled'}>Améliorer maintenant</button></div>
+        <p class="small-note">${doneMode ? `Vidéo améliorée : ${labels[doneMode] || doneMode}. Les sous-titres seront incrustés après.` : manualText}</p>
+        <label class="field"><span>Qualité visuelle</span><select id="videoSharpnessResult">${resultOptions(mode)}</select></label>
+        <div class="prompt-actions"><button type="button" class="primary-btn" data-action="enhance-video-now" ${videoReady ? '' : 'disabled'}>${mode === 'ultra' ? 'Appliquer Ultra 1080p' : 'Améliorer maintenant'}</button></div>
       </div>
     `;
   }
@@ -65,16 +92,16 @@
 
   async function patchProjectChoice(project) {
     if (!project) return null;
-    const mode = getChoice();
+    const mode = getAutoChoice();
     const next = { ...project, config: { ...project.config, videoSharpnessMode: mode } };
     await saveProject(next);
     return next;
   }
 
-  async function enhanceVideo(projectArg = null) {
+  async function enhanceVideo(projectArg = null, forcedMode = '') {
     let project = projectArg || activeProject();
     if (!project) return null;
-    const mode = project.config?.videoSharpnessMode || getChoice();
+    const mode = forcedMode || project.config?.videoSharpnessMode || getChoice();
     if (mode === 'normal') return project;
 
     const sourceId = project.config?.cleanVideoMediaId || project.config?.originalFinalVideoMediaId || project.config?.finalVideoMediaId;
@@ -113,9 +140,10 @@
     const next = {
       ...project,
       updatedAt: typeof nowISO === 'function' ? nowISO() : new Date().toISOString(),
-      status: 'Vidéo améliorée prête',
+      status: mode === 'ultra' ? 'Vidéo Ultra 1080p prête' : 'Vidéo Propre HD prête',
       config: {
         ...project.config,
+        videoSharpnessMode: mode,
         cleanVideoMediaId,
         originalFinalVideoMediaId: cleanVideoId,
         enhancedVideoMediaId: media.id,
@@ -133,7 +161,7 @@
     await saveProject(next);
     state.currentResultId = next.id;
     if (typeof render === 'function') render();
-    toast('Vidéo améliorée prête. Sous-titres ensuite.');
+    toast(mode === 'ultra' ? 'Ultra net 1080p prêt. Sous-titres ensuite.' : 'Propre HD automatique prêt. Sous-titres ensuite.');
     return next;
   }
 
@@ -141,7 +169,9 @@
     if (!ready() || state.route !== 'result') return;
     let project = activeProject();
     if (!project || !['music', 'speech'].includes(project.type)) return;
-    const mode = getChoice();
+
+    const mode = getAutoChoice();
+    if (project.config?.videoSharpnessMode === 'ultra') return;
     if (project.config?.videoSharpnessMode !== mode) project = await patchProjectChoice(project);
     if (mode === 'normal') return;
     if (project.config?.renderStatus !== 'done') return;
@@ -152,27 +182,30 @@
     const key = `${project.id}_${sourceId}_${mode}`;
     if (running.has(key)) return;
     running.add(key);
-    try { await enhanceVideo(project); } catch (error) { console.error(error); toast(error.message || 'Erreur amélioration vidéo.'); }
+    try { await enhanceVideo(project, mode); } catch (error) { console.error(error); toast(error.message || 'Erreur amélioration vidéo.'); }
   }
 
   document.addEventListener('change', async (event) => {
     const select = event.target.closest('#videoSharpnessBeforeRender, #videoSharpnessResult');
     if (!select) return;
-    saveChoice(select.value || 'propre');
+    const chosen = select.value || 'propre';
+    saveChoice(chosen);
     const project = activeProject();
     if (project && state.route === 'result') {
-      await saveProject({ ...project, config: { ...project.config, videoSharpnessMode: select.value || 'propre', enhancedVideoMediaId: null, enhancedVideoMode: null, subtitleBaseVideoMediaId: null, subtitledVideoMediaId: null } });
+      await saveProject({ ...project, config: { ...project.config, videoSharpnessMode: chosen, enhancedVideoMediaId: null, enhancedVideoMode: null, subtitleBaseVideoMediaId: null, subtitledVideoMediaId: null } });
       if (typeof render === 'function') render();
     }
-    toast(`Netteté : ${labels[select.value] || select.value}`);
+    toast(`Netteté : ${labels[chosen] || chosen}`);
   });
 
   document.addEventListener('click', async (event) => {
     const target = event.target.closest('[data-action="enhance-video-now"]');
     if (!target) return;
-    try { await enhanceVideo(); } catch (error) { console.error(error); toast(error.message || 'Erreur amélioration vidéo.'); }
+    const project = activeProject();
+    const mode = project?.config?.videoSharpnessMode || getChoice();
+    try { await enhanceVideo(project, mode); } catch (error) { console.error(error); toast(error.message || 'Erreur amélioration vidéo.'); }
   });
 
   setInterval(() => { injectPreBox(); injectResultBox(); autoEnhanceIfReady(); }, 1100);
-  console.log('Interface netteté vidéo active V27 ordre pipeline.');
+  console.log('Interface netteté vidéo active V32 : Propre HD auto, Ultra 1080p manuel.');
 })();
