@@ -1,4 +1,4 @@
-/* V28 - Surveillance finale : si les sous-titres sont prêts, ils sont vraiment incrustés dans la vidéo */
+/* V29 - Bouton manuel fiable : incruster les sous-titres dans la vidéo */
 (function () {
   const running = new Set();
 
@@ -71,6 +71,7 @@
 
   function srtFromProject(project) {
     const cfg = project?.config || {};
+
     if (looksLikeSrt(cfg.openAiSrt)) return cfg.openAiSrt;
     if (looksLikeSrt(cfg.srt)) return cfg.srt;
     if (looksLikeSrt(cfg.subtitles?.srt)) return cfg.subtitles.srt;
@@ -124,15 +125,30 @@
     return true;
   }
 
+  function canBurn(project) {
+    if (!project || !['music', 'speech'].includes(project.type)) return false;
+    const cfg = project.config || {};
+    if (cfg.renderStatus !== 'done') return false;
+    if (!cfg.finalVideoMediaId) return false;
+    if (shouldWaitForEnhance(project)) return false;
+    return !!(srtFromProject(project) || assFromProject(project));
+  }
+
   async function burnSubtitles(project) {
     const cfg = project.config || {};
     const srt = srtFromProject(project);
     const ass = assFromProject(project);
-    if (!srt && !ass) return null;
+    if (!srt && !ass) {
+      toast('Sous-titres introuvables. Lance d’abord la transcription.');
+      return null;
+    }
 
     const baseVideoId = getBaseVideoId(project);
     const baseVideo = await getMedia(baseVideoId);
-    if (!baseVideo?.blob) return null;
+    if (!baseVideo?.blob) {
+      toast('Vidéo source introuvable. Refais la vidéo si besoin.');
+      return null;
+    }
 
     const style = cfg.subtitleStyle || cfg.subtitledStyle || 'rap';
     const syncMode = cfg.subtitleSyncMode || cfg.subtitledSyncMode || 'normal';
@@ -145,7 +161,7 @@
     form.append('subtitleSyncMode', syncMode);
     form.append('aspectRatio', cfg.aspectRatio || 'vertical');
 
-    toast('Sous-titres prêts : incrustation dans la vidéo...');
+    toast('Incrustation des sous-titres dans la vidéo...');
 
     const response = await fetch(`${BACKEND_BASE_URL}/api/subtitles/burn-video`, {
       method: 'POST',
@@ -205,21 +221,48 @@
     return next;
   }
 
-  async function watchdog() {
+  function injectManualButton() {
     if (!ready() || state.route !== 'result') return;
     const project = activeProject();
     if (!project || !['music', 'speech'].includes(project.type)) return;
+    if (document.getElementById('forceBurnSubtitlesBox')) return;
+
     const cfg = project.config || {};
-    if (cfg.subtitlesEnabled === false) return;
-    if (cfg.renderStatus !== 'done') return;
-    if (!cfg.finalVideoMediaId) return;
+    const hasSubtitledFinal = !!cfg.subtitledVideoMediaId && cfg.finalVideoMediaId === cfg.subtitledVideoMediaId;
+    const hasReadySubs = !!(srtFromProject(project) || assFromProject(project));
+
+    if (!hasReadySubs || hasSubtitledFinal) return;
+
+    const html = `
+      <div class="result-box" id="forceBurnSubtitlesBox">
+        <div class="result-box-head"><h3>🎬 Incruster les sous-titres</h3></div>
+        <p class="small-note">Tes sous-titres sont prêts, mais ils ne sont pas encore visibles dans la vidéo finale.</p>
+        <div class="prompt-actions">
+          <button type="button" class="primary-btn" data-action="force-burn-subtitles">
+            🎬 Incruster dans la vidéo
+          </button>
+        </div>
+      </div>
+    `;
+
+    const videoBox = [...document.querySelectorAll('.result-box')].find((box) => box.textContent.includes('Vidéo finale'));
+    const subtitlesBox = [...document.querySelectorAll('.result-box')].find((box) => box.textContent.includes('Sous-titres'));
+    const target = videoBox || subtitlesBox || [...document.querySelectorAll('.result-box')][0];
+    if (target) target.insertAdjacentHTML('afterend', html);
+  }
+
+  async function watchdog() {
+    injectManualButton();
+
+    if (!ready() || state.route !== 'result') return;
+    const project = activeProject();
+    if (!canBurn(project)) return;
+
+    const cfg = project.config || {};
     if (cfg.subtitledVideoMediaId && cfg.finalVideoMediaId === cfg.subtitledVideoMediaId) return;
-    if (shouldWaitForEnhance(project)) return;
 
     const srt = srtFromProject(project);
     const ass = assFromProject(project);
-    if (!srt && !ass) return;
-
     const baseId = getBaseVideoId(project);
     const key = `${project.id}_${baseId}_${cfg.subtitleStyle || 'rap'}_${cfg.subtitleSyncMode || 'normal'}_${srt.length}_${ass.length}`;
     if (running.has(key)) return;
@@ -238,14 +281,18 @@
     if (!target) return;
     const project = activeProject();
     if (!project) return;
+    target.disabled = true;
+    target.textContent = '🎬 Incrustation en cours...';
     try {
       await burnSubtitles(project);
     } catch (error) {
       console.error(error);
       toast(error.message || 'Erreur incrustation sous-titres.');
+      target.disabled = false;
+      target.textContent = '🎬 Incruster dans la vidéo';
     }
   });
 
   setInterval(watchdog, 1200);
-  console.log('Watchdog incrustation sous-titres actif V28.');
+  console.log('Bouton manuel + watchdog incrustation sous-titres actif V29.');
 })();
