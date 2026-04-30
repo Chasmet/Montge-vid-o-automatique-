@@ -1,4 +1,4 @@
-/* Sous-titres automatiques stylés - choix avant rendu + transcription OpenAI + incrustation */
+/* Sous-titres automatiques stylés - choix avant rendu + réincrustation propre */
 (function () {
   const STYLE_LABELS = {
     rap: 'Rap / clip officiel',
@@ -75,6 +75,16 @@
     return (state.cache.media || []).find(m => m.id === id) || null;
   }
 
+  function getCleanVideoId(project) {
+    return project?.config?.cleanVideoMediaId || project?.config?.originalFinalVideoMediaId || project?.config?.finalVideoMediaId || '';
+  }
+
+  async function getCleanVideo(project) {
+    const id = getCleanVideoId(project);
+    if (!id) return null;
+    return await getMedia(id);
+  }
+
   function showMsg(message) {
     if (typeof showToast === 'function') showToast(message);
     else alert(message);
@@ -135,6 +145,7 @@
     const videoReady = !!project?.config?.finalVideoMediaId;
     const autoEnabled = project?.config?.subtitlesEnabled !== false;
     const done = project?.config?.subtitledVideoMediaId;
+    const subtitledStyle = project?.config?.subtitledStyle || '';
 
     return `
       <div class="result-box" id="openaiSubtitlesBox">
@@ -142,7 +153,7 @@
           <h3>💬 Sous-titres OpenAI stylés</h3>
         </div>
         <p class="small-note">
-          ${done ? 'Vidéo sous-titrée prête.' : 'La transcription et l’incrustation se font automatiquement après le rendu si l’option est activée.'}
+          ${done ? `Vidéo sous-titrée prête. Style incrusté : ${STYLE_LABELS[subtitledStyle] || subtitledStyle || '—'}.` : 'La transcription et l’incrustation se font automatiquement après le rendu si l’option est activée.'}
         </p>
         <label class="field">
           <span>Style des sous-titres</span>
@@ -158,7 +169,7 @@
             ${hasSrt ? 'Refaire la transcription' : 'Transcrire automatiquement'}
           </button>
           <button type="button" class="primary-btn" data-action="openai-burn-subtitles" ${hasSrt && videoReady ? '' : 'disabled'}>
-            Incruster maintenant
+            ${done && subtitledStyle !== style ? 'Remplacer le style' : 'Incruster maintenant'}
           </button>
         </div>
         <p class="small-note">
@@ -290,9 +301,12 @@
       return null;
     }
 
-    const finalVideo = getFinalVideo(project);
-    if (!finalVideo?.blob) {
-      showMsg('Crée d’abord la vidéo finale.');
+    const currentFinalId = project.config?.finalVideoMediaId || '';
+    const cleanVideoId = project.config?.cleanVideoMediaId || project.config?.originalFinalVideoMediaId || currentFinalId;
+    const cleanVideo = await getMedia(cleanVideoId);
+
+    if (!cleanVideo?.blob) {
+      showMsg('Vidéo propre introuvable. Refais la vidéo une seule fois pour repartir sans anciens sous-titres.');
       return null;
     }
 
@@ -306,12 +320,12 @@
     const style = safeText(document.getElementById('subtitleStyleSelect')?.value || project.config?.subtitleStyle || choice.style || 'rap');
 
     const form = new FormData();
-    form.append('video', finalVideo.blob, finalVideo.fileName || 'video.mp4');
+    form.append('video', cleanVideo.blob, cleanVideo.fileName || 'video.mp4');
     form.append('srt', srt);
     form.append('subtitleStyle', style);
     form.append('aspectRatio', project.config?.aspectRatio || 'vertical');
 
-    showMsg('Incrustation des sous-titres...');
+    showMsg('Incrustation propre des sous-titres...');
 
     const response = await fetch(`${BACKEND_BASE_URL}/api/subtitles/burn-video`, {
       method: 'POST',
@@ -333,13 +347,13 @@
       owner: state.profile,
       bucket: 'project-video',
       mediaType: 'video',
-      fileName: `${project.name.replace(/[^\w-]/g, '_')}_sous_titres.mp4`,
+      fileName: `${project.name.replace(/[^\w-]/g, '_')}_sous_titres_${style}.mp4`,
       mimeType: 'video/mp4',
       size: blob.size || 0,
       createdAt: typeof nowISO === 'function' ? nowISO() : new Date().toISOString(),
       block: 'Vrac',
       orientation: project.config?.aspectRatio === 'horizontal' ? 'horizontal' : 'vertical',
-      tags: ['sous-titres'],
+      tags: ['sous-titres', style],
       blob
     };
 
@@ -353,6 +367,9 @@
       config: {
         ...project.config,
         subtitleStyle: style,
+        subtitledStyle: style,
+        cleanVideoMediaId: cleanVideoId,
+        originalFinalVideoMediaId: cleanVideoId,
         finalVideoMediaId: media.id,
         subtitledVideoMediaId: media.id,
         renderStatus: 'done',
@@ -380,9 +397,12 @@
     if (project.config?.subtitlesEnabled === false) return;
     if (project.config?.renderStatus !== 'done') return;
     if (!project.config?.finalVideoMediaId) return;
-    if (project.config?.subtitledVideoMediaId) return;
 
-    const key = `${project.id}_${project.config.finalVideoMediaId}_${project.config.subtitleStyle || choice.style}`;
+    const wantedStyle = project.config?.subtitleStyle || choice.style || 'rap';
+    if (project.config?.subtitledVideoMediaId && project.config?.subtitledStyle === wantedStyle) return;
+
+    const cleanId = project.config?.cleanVideoMediaId || project.config?.originalFinalVideoMediaId || project.config?.finalVideoMediaId;
+    const key = `${project.id}_${cleanId}_${wantedStyle}`;
     if (autoJobs.has(key)) return;
     autoJobs.add(key);
 
@@ -409,6 +429,21 @@
     choice.enabled = true;
     saveChoice(choice);
     setDraftChoice(select.dataset.kind || 'music', choice);
+
+    const project = activeProject();
+    if (project && state.route === 'result') {
+      await saveProject({
+        ...project,
+        config: {
+          ...project.config,
+          subtitlesEnabled: true,
+          subtitleStyle: choice.style,
+          subtitleMode: 'auto'
+        }
+      });
+      if (typeof render === 'function') render();
+    }
+
     showMsg(`Style sous-titres : ${STYLE_LABELS[choice.style] || choice.style}`);
   });
 
@@ -448,5 +483,5 @@
     autoSubtitleIfReady();
   }, 900);
 
-  console.log('Interface sous-titres OpenAI active V22 choix avant rendu.');
+  console.log('Interface sous-titres OpenAI active V24 réincrustation propre.');
 })();
