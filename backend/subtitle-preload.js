@@ -62,7 +62,7 @@ function runFfmpeg(args, id, label) {
     let stderr = "";
     child.stderr.on("data", (data) => {
       stderr += data.toString();
-      if (stderr.length > 6000) stderr = stderr.slice(-6000);
+      if (stderr.length > 9000) stderr = stderr.slice(-9000);
     });
 
     child.on("close", (code) => {
@@ -86,19 +86,7 @@ async function prepareAudioForTranscription(inputPath, workDir, id, startSec, en
     args.push("-ss", String(startSec), "-t", String(endSec - startSec));
   }
 
-  args.push(
-    "-i",
-    inputPath,
-    "-vn",
-    "-ar",
-    "16000",
-    "-ac",
-    "1",
-    "-b:a",
-    "48k",
-    outputPath
-  );
-
+  args.push("-i", inputPath, "-vn", "-ar", "16000", "-ac", "1", "-b:a", "48k", outputPath);
   await runFfmpeg(args, id, "prepare transcription audio");
   return outputPath;
 }
@@ -129,26 +117,20 @@ function srtTimeToAss(value) {
   const clean = safeText(value).replace(",", ".");
   const match = clean.match(/(\d+):(\d+):(\d+)\.(\d+)/);
   if (!match) return "0:00:00.00";
-
   const h = Number(match[1] || 0);
   const m = String(Number(match[2] || 0)).padStart(2, "0");
   const s = String(Number(match[3] || 0)).padStart(2, "0");
   const cs = String(Math.round(Number(`0.${match[4] || "0"}`) * 100)).padStart(2, "0");
-
   return `${h}:${m}:${s}.${cs}`;
 }
 
 function normalizeSubtitleText(text) {
-  return safeText(text)
-    .replace(/\\N/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return safeText(text).replace(/\\N/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function wrapSubtitleText(text, aspectRatio = "vertical", styleName = "rap") {
   const clean = normalizeSubtitleText(text);
   if (!clean) return "";
-
   const vertical = aspectRatio !== "horizontal";
   const maxChars = vertical ? (styleName === "tiktok" ? 22 : 26) : 42;
   const maxLines = 2;
@@ -168,39 +150,25 @@ function wrapSubtitleText(text, aspectRatio = "vertical", styleName = "rap") {
   }
 
   if (line && lines.length < maxLines) lines.push(line);
-
   const usedWordCount = lines.join(" ").split(" ").filter(Boolean).length;
   if (usedWordCount < words.length && lines.length) {
     lines[lines.length - 1] = `${lines[lines.length - 1].replace(/[,.!?;:]$/, "")}…`;
   }
-
   return lines.join("\\N");
 }
 
 function parseSrt(srt) {
-  const blocks = safeText(srt)
-    .replace(/\r/g, "")
-    .split(/\n\s*\n/g)
-    .map((block) => block.trim())
-    .filter(Boolean);
-
+  const blocks = safeText(srt).replace(/\r/g, "").split(/\n\s*\n/g).map((block) => block.trim()).filter(Boolean);
   const cues = [];
 
   for (const block of blocks) {
     const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
     const timeIndex = lines.findIndex((line) => line.includes("-->"));
     if (timeIndex === -1) continue;
-
     const [startRaw, endRaw] = lines[timeIndex].split("-->").map((part) => part.trim());
     const text = lines.slice(timeIndex + 1).join(" ").replace(/\{[^}]*\}/g, "");
-
     if (!text) continue;
-
-    cues.push({
-      start: srtTimeToAss(startRaw),
-      end: srtTimeToAss(endRaw),
-      text
-    });
+    cues.push({ start: srtTimeToAss(startRaw), end: srtTimeToAss(endRaw), text });
   }
 
   return cues;
@@ -226,7 +194,6 @@ function buildSrtFromWords(words = []) {
     const first = current[0];
     const duration = first ? word.end - first.start : 0;
     const textLength = [...current, word].map((w) => w.word).join(" ").length;
-
     if (current.length && (current.length >= 6 || duration >= 2.4 || textLength > 34)) {
       groups.push(current);
       current = [word];
@@ -236,70 +203,33 @@ function buildSrtFromWords(words = []) {
   }
 
   if (current.length) groups.push(current);
-
   return groups
-    .map((group, index) => {
-      const start = group[0].start;
-      const end = group[group.length - 1].end;
-      const text = group.map((w) => w.word).join(" ");
-      return `${index + 1}\n${secondsToSrtTime(start)} --> ${secondsToSrtTime(end)}\n${text}`;
-    })
+    .map((group, index) => `${index + 1}\n${secondsToSrtTime(group[0].start)} --> ${secondsToSrtTime(group[group.length - 1].end)}\n${group.map((w) => w.word).join(" ")}`)
     .join("\n\n");
 }
 
 function escapeAssText(text) {
   return safeText(text)
-    .replace(/\\/g, "\\\\")
+    .replace(/\r/g, "")
+    .replace(/\n/g, "\\N")
     .replace(/\{/g, "")
-    .replace(/\}/g, "");
+    .replace(/\}/g, "")
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .trim();
 }
 
 function escapeKaraokeWord(text) {
-  return escapeAssText(text).replace(/\s+/g, " ").trim();
+  return escapeAssText(text).replace(/\\N/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function subtitleStyle(styleName, aspectRatio) {
   const vertical = aspectRatio !== "horizontal";
-
   const styles = {
-    classic: {
-      fontSize: vertical ? 38 : 32,
-      primary: "&H00FFFFFF",
-      secondary: "&H0000FFFF",
-      outline: 3,
-      shadow: 1,
-      marginV: vertical ? 120 : 56,
-      bold: -1
-    },
-    tiktok: {
-      fontSize: vertical ? 42 : 36,
-      primary: "&H0000FFFF",
-      secondary: "&H00FFFFFF",
-      outline: 4,
-      shadow: 2,
-      marginV: vertical ? 145 : 70,
-      bold: -1
-    },
-    cinema: {
-      fontSize: vertical ? 34 : 30,
-      primary: "&H00F4F4F4",
-      secondary: "&H00E5E5E5",
-      outline: 2,
-      shadow: 1,
-      marginV: vertical ? 105 : 48,
-      bold: 0
-    },
-    rap: {
-      fontSize: vertical ? 40 : 34,
-      primary: "&H00FFFFFF",
-      secondary: "&H0000FFFF",
-      outline: 4,
-      shadow: 2,
-      marginV: vertical ? 125 : 62,
-      bold: -1
-    }
+    classic: { fontSize: vertical ? 38 : 32, primary: "&H00FFFFFF", secondary: "&H0000FFFF", outline: 3, shadow: 1, marginV: vertical ? 120 : 56, bold: -1 },
+    tiktok: { fontSize: vertical ? 42 : 36, primary: "&H0000FFFF", secondary: "&H00FFFFFF", outline: 4, shadow: 2, marginV: vertical ? 145 : 70, bold: -1 },
+    cinema: { fontSize: vertical ? 34 : 30, primary: "&H00F4F4F4", secondary: "&H00E5E5E5", outline: 2, shadow: 1, marginV: vertical ? 105 : 48, bold: 0 },
+    rap: { fontSize: vertical ? 40 : 34, primary: "&H00FFFFFF", secondary: "&H0000FFFF", outline: 4, shadow: 2, marginV: vertical ? 125 : 62, bold: -1 }
   };
-
   return styles[styleName] || styles.rap;
 }
 
@@ -307,8 +237,8 @@ function assHeader(styleName = "rap", aspectRatio = "vertical") {
   const st = subtitleStyle(styleName, aspectRatio);
   const playResX = aspectRatio === "horizontal" ? 1280 : 720;
   const playResY = aspectRatio === "horizontal" ? 720 : 1280;
-
   return `[Script Info]
+Title: Montage IA Subtitles
 ScriptType: v4.00+
 PlayResX: ${playResX}
 PlayResY: ${playResY}
@@ -326,14 +256,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 function buildAssFromSrt(srt, styleName = "rap", aspectRatio = "vertical") {
   const cues = parseSrt(srt);
   const header = assHeader(styleName, aspectRatio);
-
   const body = cues
     .map((cue) => {
       const wrapped = wrapSubtitleText(cue.text, aspectRatio, styleName);
       return `Dialogue: 0,${cue.start},${cue.end},Main,,0,0,0,,${escapeAssText(wrapped)}`;
     })
     .join("\n");
-
   return `${header}\n${body}\n`;
 }
 
@@ -349,7 +277,6 @@ function buildKaraokeAssFromWords(words = [], styleName = "rap", aspectRatio = "
     const first = current[0];
     const duration = first ? word.end - first.start : 0;
     const textLength = [...current, word].map((w) => w.word).join(" ").length;
-
     if (current.length && (current.length >= maxWords || duration >= maxDuration || textLength > 30)) {
       groups.push(current);
       current = [word];
@@ -359,7 +286,6 @@ function buildKaraokeAssFromWords(words = [], styleName = "rap", aspectRatio = "
   }
 
   if (current.length) groups.push(current);
-
   const body = groups
     .map((group) => {
       const start = group[0].start;
@@ -371,19 +297,19 @@ function buildKaraokeAssFromWords(words = [], styleName = "rap", aspectRatio = "
         })
         .join("")
         .trim();
-
       return `Dialogue: 0,${secondsToAssTime(start)},${secondsToAssTime(end)},Main,,0,0,0,,${text}`;
     })
     .join("\n");
-
   return `${header}\n${body}\n`;
 }
 
+function assLooksUsable(ass) {
+  const text = safeText(ass);
+  return text.includes("[Script Info]") && text.includes("[V4+ Styles]") && text.includes("[Events]") && text.includes("Dialogue:");
+}
+
 function escapeFilterPath(filePath) {
-  return filePath
-    .replace(/\\/g, "/")
-    .replace(/:/g, "\\:")
-    .replace(/'/g, "\\'");
+  return filePath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
 function installSubtitleRoutes(app) {
@@ -396,13 +322,8 @@ function installSubtitleRoutes(app) {
     const workDir = path.join(TMP_ROOT, `transcribe_${Date.now()}_${id}`);
 
     try {
-      if (!client) {
-        return res.status(500).json({ ok: false, error: "OPENAI_API_KEY manquante pour la transcription." });
-      }
-      if (!file) {
-        return res.status(400).json({ ok: false, error: "Audio manquant." });
-      }
-
+      if (!client) return res.status(500).json({ ok: false, error: "OPENAI_API_KEY manquante pour la transcription." });
+      if (!file) return res.status(400).json({ ok: false, error: "Audio manquant." });
       await ensureDir(workDir);
 
       const startSec = safeNumber(req.body?.audioStartSec, 0);
@@ -414,151 +335,77 @@ function installSubtitleRoutes(app) {
 
       if (syncMode === "karaoke") {
         log(id, "OPENAI TRANSCRIBE START", "whisper-1 word timestamps karaoke");
-
-        const verbose = await client.audio.transcriptions.create({
-          file: fs.createReadStream(preparedAudio),
-          model: "whisper-1",
-          response_format: "verbose_json",
-          timestamp_granularities: ["word"],
-          language: "fr"
-        });
-
+        const verbose = await client.audio.transcriptions.create({ file: fs.createReadStream(preparedAudio), model: "whisper-1", response_format: "verbose_json", timestamp_granularities: ["word"], language: "fr" });
         const words = normalizeWords(verbose?.words || []);
         const srt = buildSrtFromWords(words);
         const ass = buildKaraokeAssFromWords(words, style, aspectRatio);
-
         log(id, "OPENAI TRANSCRIBE OK", `${words.length} words style=${style} sync=karaoke`);
-
-        return res.json({
-          ok: true,
-          source: "openai_whisper_words",
-          model: "whisper-1",
-          syncMode,
-          srt,
-          ass,
-          words,
-          style
-        });
+        return res.json({ ok: true, source: "openai_whisper_words", model: "whisper-1", syncMode, srt, ass, words, style });
       }
 
       log(id, "OPENAI TRANSCRIBE START", TRANSCRIBE_MODEL);
-
-      const srt = await client.audio.transcriptions.create({
-        file: fs.createReadStream(preparedAudio),
-        model: TRANSCRIBE_MODEL,
-        response_format: "srt",
-        language: "fr"
-      });
-
+      const srt = await client.audio.transcriptions.create({ file: fs.createReadStream(preparedAudio), model: TRANSCRIBE_MODEL, response_format: "srt", language: "fr" });
       const cleanSrt = typeof srt === "string" ? srt : String(srt || "");
       const ass = buildAssFromSrt(cleanSrt, style, aspectRatio);
-
       log(id, "OPENAI TRANSCRIBE OK", `${cleanSrt.length} chars style=${style} sync=normal`);
-
-      res.json({
-        ok: true,
-        source: "openai_whisper",
-        model: TRANSCRIBE_MODEL,
-        syncMode,
-        srt: cleanSrt,
-        ass,
-        style
-      });
+      res.json({ ok: true, source: "openai_whisper", model: TRANSCRIBE_MODEL, syncMode, srt: cleanSrt, ass, style });
     } catch (error) {
       console.error(`[${id}] TRANSCRIBE ERROR`, error);
-      res.status(500).json({
-        ok: false,
-        error: error.message || "Impossible de transcrire l’audio."
-      });
+      res.status(500).json({ ok: false, error: error.message || "Impossible de transcrire l’audio." });
     } finally {
       await removePathQuietly(file?.path);
       await removePathQuietly(workDir);
     }
   });
 
-  app.post(
-    "/api/subtitles/burn-video",
-    subtitleUpload.fields([{ name: "video", maxCount: 1 }]),
-    async (req, res) => {
-      const id = req.reqId || reqId();
-      const videoFile = req.files?.video?.[0] || null;
-      const workDir = path.join(TMP_ROOT, `burn_${Date.now()}_${id}`);
+  app.post("/api/subtitles/burn-video", subtitleUpload.fields([{ name: "video", maxCount: 1 }]), async (req, res) => {
+    const id = req.reqId || reqId();
+    const videoFile = req.files?.video?.[0] || null;
+    const workDir = path.join(TMP_ROOT, `burn_${Date.now()}_${id}`);
 
-      try {
-        if (!videoFile) {
-          return res.status(400).json({ ok: false, error: "Vidéo manquante." });
-        }
+    try {
+      if (!videoFile) return res.status(400).json({ ok: false, error: "Vidéo manquante." });
+      const srt = safeText(req.body?.srt || "");
+      const assFromClient = safeText(req.body?.ass || "");
+      if (!srt && !assFromClient) return res.status(400).json({ ok: false, error: "Sous-titres manquants." });
 
-        const srt = safeText(req.body?.srt || "");
-        const assFromClient = safeText(req.body?.ass || "");
-        if (!srt && !assFromClient) {
-          return res.status(400).json({ ok: false, error: "Sous-titres manquants." });
-        }
+      await ensureDir(workDir);
+      const style = safeText(req.body?.subtitleStyle || "rap") || "rap";
+      const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
+      const syncMode = safeText(req.body?.subtitleSyncMode || "normal") || "normal";
+      let ass = assLooksUsable(assFromClient) ? assFromClient : buildAssFromSrt(srt, style, aspectRatio);
 
-        await ensureDir(workDir);
-
-        const style = safeText(req.body?.subtitleStyle || "rap") || "rap";
-        const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
-        const ass = assFromClient || buildAssFromSrt(srt, style, aspectRatio);
-        const assPath = path.join(workDir, "subtitles.ass");
-        const outputPath = path.join(workDir, "video_subtitled.mp4");
-
-        await fsp.writeFile(assPath, ass, "utf8");
-
-        await runFfmpeg(
-          [
-            "-y",
-            "-i",
-            videoFile.path,
-            "-vf",
-            `ass=${escapeFilterPath(assPath)}`,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "copy",
-            "-movflags",
-            "+faststart",
-            outputPath
-          ],
-          id,
-          `burn subtitles style=${style}`
-        );
-
-        const stat = await fsp.stat(outputPath);
-        log(id, "BURN SUBTITLES OK", `${stat.size} bytes`);
-
-        res.setHeader("Content-Type", "video/mp4");
-        res.setHeader("Cache-Control", "no-store");
-        res.setHeader("Content-Disposition", "inline; filename=video_sous_titres.mp4");
-
-        const stream = fs.createReadStream(outputPath);
-        stream.on("close", async () => {
-          await removePathQuietly(videoFile.path);
-          await removePathQuietly(workDir);
-        });
-        stream.on("error", async (error) => {
-          console.error(`[${id}] BURN STREAM ERROR`, error);
-          await removePathQuietly(videoFile.path);
-          await removePathQuietly(workDir);
-        });
-        stream.pipe(res);
-      } catch (error) {
-        console.error(`[${id}] BURN SUBTITLES ERROR`, error);
-        await removePathQuietly(videoFile?.path);
-        await removePathQuietly(workDir);
-        res.status(500).json({
-          ok: false,
-          error: error.message || "Impossible d’incruster les sous-titres."
-        });
+      // Sécurité V30 : si un ancien ASS karaoké était mal échappé, on force un ASS propre depuis le SRT.
+      if (ass.includes("{\\\\k") || !assLooksUsable(ass)) {
+        log(id, "ASS FALLBACK", "rebuild from srt");
+        ass = buildAssFromSrt(srt, style, aspectRatio);
       }
-    }
-  );
 
-  console.log("Routes sous-titres OpenAI chargées V25 suivi chanson mot par mot.");
+      const assPath = path.join(workDir, "subtitles.ass");
+      const outputPath = path.join(workDir, "video_subtitled.mp4");
+      await fsp.writeFile(assPath, ass, "utf8");
+
+      await runFfmpeg(["-y", "-i", videoFile.path, "-vf", `ass=${escapeFilterPath(assPath)}`, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", outputPath], id, `burn subtitles style=${style} sync=${syncMode}`);
+
+      const stat = await fsp.stat(outputPath);
+      log(id, "BURN SUBTITLES OK", `${stat.size} bytes`);
+      res.setHeader("Content-Type", "video/mp4");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Disposition", "inline; filename=video_sous_titres.mp4");
+
+      const stream = fs.createReadStream(outputPath);
+      stream.on("close", async () => { await removePathQuietly(videoFile.path); await removePathQuietly(workDir); });
+      stream.on("error", async (error) => { console.error(`[${id}] BURN STREAM ERROR`, error); await removePathQuietly(videoFile.path); await removePathQuietly(workDir); });
+      stream.pipe(res);
+    } catch (error) {
+      console.error(`[${id}] BURN SUBTITLES ERROR`, error);
+      await removePathQuietly(videoFile?.path);
+      await removePathQuietly(workDir);
+      res.status(500).json({ ok: false, error: error.message || "Impossible d’incruster les sous-titres." });
+    }
+  });
+
+  console.log("Routes sous-titres OpenAI chargées V30 correction ASS libass.");
 }
 
 const originalListen = express.application.listen;
