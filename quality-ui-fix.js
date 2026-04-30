@@ -1,53 +1,16 @@
-/* Amélioration netteté vidéo gratuite - FFmpeg */
+/* Amélioration netteté vidéo gratuite - FFmpeg - V27 ordre pipeline */
 (function () {
   const choiceKey = 'video_sharpness_choice_v1';
-  const labels = {
-    normal: 'Normal',
-    propre: 'Propre HD',
-    ultra: 'Ultra net 1080p'
-  };
-
+  const labels = { normal: 'Normal', propre: 'Propre HD', ultra: 'Ultra net 1080p' };
   const running = new Set();
 
-  function ready() {
-    try { return typeof state !== 'undefined' && typeof render === 'function'; } catch { return false; }
-  }
-
-  function getChoice() {
-    try {
-      const raw = localStorage.getItem(choiceKey);
-      const parsed = raw ? JSON.parse(raw) : null;
-      return parsed?.mode || 'propre';
-    } catch {
-      return 'propre';
-    }
-  }
-
-  function saveChoice(mode) {
-    try { localStorage.setItem(choiceKey, JSON.stringify({ mode })); } catch {}
-  }
-
-  function toast(message) {
-    if (typeof showToast === 'function') showToast(message);
-    else alert(message);
-  }
-
-  function activeProject() {
-    if (!ready() || !state.currentResultId) return null;
-    return (state.cache.projects || []).find(p => p.id === state.currentResultId) || null;
-  }
-
-  async function getMedia(id) {
-    if (!id) return null;
-    if (typeof mediaGetById === 'function') return await mediaGetById(id);
-    return (state.cache.media || []).find(m => m.id === id) || null;
-  }
-
-  async function saveProject(project) {
-    if (typeof projectPut !== 'function') throw new Error('Sauvegarde projet indisponible.');
-    await projectPut(project);
-    if (typeof hydrateCache === 'function') await hydrateCache();
-  }
+  function ready() { try { return typeof state !== 'undefined' && typeof render === 'function'; } catch { return false; } }
+  function getChoice() { try { const raw = localStorage.getItem(choiceKey); const parsed = raw ? JSON.parse(raw) : null; return parsed?.mode || 'propre'; } catch { return 'propre'; } }
+  function saveChoice(mode) { try { localStorage.setItem(choiceKey, JSON.stringify({ mode })); } catch {} }
+  function toast(message) { if (typeof showToast === 'function') showToast(message); else alert(message); }
+  function activeProject() { if (!ready() || !state.currentResultId) return null; return (state.cache.projects || []).find(p => p.id === state.currentResultId) || null; }
+  async function getMedia(id) { if (!id) return null; if (typeof mediaGetById === 'function') return await mediaGetById(id); return (state.cache.media || []).find(m => m.id === id) || null; }
+  async function saveProject(project) { if (typeof projectPut !== 'function') throw new Error('Sauvegarde projet indisponible.'); await projectPut(project); if (typeof hydrateCache === 'function') await hydrateCache(); }
 
   function options(selected) {
     return `
@@ -62,11 +25,8 @@
     return `
       <div class="result-box" id="videoQualityChoiceBox">
         <div class="result-box-head"><h3>✨ Netteté vidéo</h3></div>
-        <p class="small-note">Amélioration gratuite avec FFmpeg : image plus propre, plus nette, plus agréable à l’œil.</p>
-        <label class="field">
-          <span>Qualité visuelle finale</span>
-          <select id="videoSharpnessBeforeRender">${options(mode)}</select>
-        </label>
+        <p class="small-note">Amélioration gratuite avec FFmpeg. Si les sous-titres sont activés, la netteté se fait avant l’incrustation.</p>
+        <label class="field"><span>Qualité visuelle finale</span><select id="videoSharpnessBeforeRender">${options(mode)}</select></label>
         <p class="small-note">Mode actuel : ${labels[mode] || mode}. Ultra net est plus lent sur Render gratuit.</p>
       </div>
     `;
@@ -79,14 +39,9 @@
     return `
       <div class="result-box" id="videoQualityResultBox">
         <div class="result-box-head"><h3>✨ Netteté vidéo</h3></div>
-        <p class="small-note">${doneMode ? `Vidéo améliorée : ${labels[doneMode] || doneMode}.` : 'Après le rendu, l’app applique l’amélioration choisie si elle est activée.'}</p>
-        <label class="field">
-          <span>Qualité visuelle</span>
-          <select id="videoSharpnessResult">${options(mode)}</select>
-        </label>
-        <div class="prompt-actions">
-          <button type="button" class="primary-btn" data-action="enhance-video-now" ${videoReady ? '' : 'disabled'}>Améliorer maintenant</button>
-        </div>
+        <p class="small-note">${doneMode ? `Vidéo améliorée : ${labels[doneMode] || doneMode}. Les sous-titres seront incrustés après.` : 'Après le rendu, l’app applique la netteté choisie avant les sous-titres.'}</p>
+        <label class="field"><span>Qualité visuelle</span><select id="videoSharpnessResult">${options(mode)}</select></label>
+        <div class="prompt-actions"><button type="button" class="primary-btn" data-action="enhance-video-now" ${videoReady ? '' : 'disabled'}>Améliorer maintenant</button></div>
       </div>
     `;
   }
@@ -119,16 +74,12 @@
   async function enhanceVideo(projectArg = null) {
     let project = projectArg || activeProject();
     if (!project) return null;
-
     const mode = project.config?.videoSharpnessMode || getChoice();
     if (mode === 'normal') return project;
 
     const sourceId = project.config?.cleanVideoMediaId || project.config?.originalFinalVideoMediaId || project.config?.finalVideoMediaId;
     const source = await getMedia(sourceId);
-    if (!source?.blob) {
-      toast('Vidéo source introuvable.');
-      return null;
-    }
+    if (!source?.blob) { toast('Vidéo source introuvable.'); return null; }
 
     const form = new FormData();
     form.append('video', source.blob, source.fileName || 'video.mp4');
@@ -136,13 +87,8 @@
     form.append('aspectRatio', project.config?.aspectRatio || 'vertical');
 
     toast(`Amélioration ${labels[mode] || mode} en cours...`);
-
     const response = await fetch(`${BACKEND_BASE_URL}/api/video/enhance`, { method: 'POST', body: form });
-    if (!response.ok) {
-      let msg = 'Amélioration impossible.';
-      try { const data = await response.json(); msg = data?.error || msg; } catch {}
-      throw new Error(msg);
-    }
+    if (!response.ok) { let msg = 'Amélioration impossible.'; try { const data = await response.json(); msg = data?.error || msg; } catch {} throw new Error(msg); }
 
     const blob = await response.blob();
     const media = {
@@ -156,7 +102,7 @@
       createdAt: typeof nowISO === 'function' ? nowISO() : new Date().toISOString(),
       block: 'Vrac',
       orientation: project.config?.aspectRatio === 'horizontal' ? 'horizontal' : 'vertical',
-      tags: ['netteté', mode],
+      tags: ['netteté', mode, 'base-sous-titres'],
       blob
     };
 
@@ -174,7 +120,11 @@
         originalFinalVideoMediaId: cleanVideoId,
         enhancedVideoMediaId: media.id,
         enhancedVideoMode: mode,
+        subtitleBaseVideoMediaId: media.id,
         finalVideoMediaId: media.id,
+        subtitledVideoMediaId: null,
+        subtitledStyle: null,
+        subtitledSyncMode: null,
         renderStatus: 'done',
         renderError: ''
       }
@@ -183,7 +133,7 @@
     await saveProject(next);
     state.currentResultId = next.id;
     if (typeof render === 'function') render();
-    toast('Vidéo améliorée prête.');
+    toast('Vidéo améliorée prête. Sous-titres ensuite.');
     return next;
   }
 
@@ -202,13 +152,7 @@
     const key = `${project.id}_${sourceId}_${mode}`;
     if (running.has(key)) return;
     running.add(key);
-
-    try {
-      await enhanceVideo(project);
-    } catch (error) {
-      console.error(error);
-      toast(error.message || 'Erreur amélioration vidéo.');
-    }
+    try { await enhanceVideo(project); } catch (error) { console.error(error); toast(error.message || 'Erreur amélioration vidéo.'); }
   }
 
   document.addEventListener('change', async (event) => {
@@ -217,7 +161,7 @@
     saveChoice(select.value || 'propre');
     const project = activeProject();
     if (project && state.route === 'result') {
-      await saveProject({ ...project, config: { ...project.config, videoSharpnessMode: select.value || 'propre' } });
+      await saveProject({ ...project, config: { ...project.config, videoSharpnessMode: select.value || 'propre', enhancedVideoMediaId: null, enhancedVideoMode: null, subtitleBaseVideoMediaId: null, subtitledVideoMediaId: null } });
       if (typeof render === 'function') render();
     }
     toast(`Netteté : ${labels[select.value] || select.value}`);
@@ -229,11 +173,6 @@
     try { await enhanceVideo(); } catch (error) { console.error(error); toast(error.message || 'Erreur amélioration vidéo.'); }
   });
 
-  setInterval(() => {
-    injectPreBox();
-    injectResultBox();
-    autoEnhanceIfReady();
-  }, 1100);
-
-  console.log('Interface netteté vidéo active V26.');
+  setInterval(() => { injectPreBox(); injectResultBox(); autoEnhanceIfReady(); }, 1100);
+  console.log('Interface netteté vidéo active V27 ordre pipeline.');
 })();
