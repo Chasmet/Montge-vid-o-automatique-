@@ -1,4 +1,4 @@
-/* Sous-titres automatiques stylés - choix avant rendu + réincrustation propre */
+/* Sous-titres automatiques stylés - choix avant rendu + réincrustation propre + suivi chanson */
 (function () {
   const STYLE_LABELS = {
     rap: 'Rap / clip officiel',
@@ -7,8 +7,13 @@
     cinema: 'Cinéma sombre'
   };
 
+  const SYNC_LABELS = {
+    normal: 'Phrase par phrase',
+    karaoke: 'Suivi chanson mot par mot'
+  };
+
   const autoJobs = new Set();
-  const userChoiceKey = 'openai_subtitle_style_choice_v1';
+  const userChoiceKey = 'openai_subtitle_style_choice_v2';
 
   function appReady() {
     try {
@@ -29,10 +34,11 @@
       return {
         enabled: parsed?.enabled !== false,
         style: parsed?.style || 'rap',
-        mode: parsed?.mode || 'auto'
+        mode: parsed?.mode || 'auto',
+        syncMode: parsed?.syncMode || 'normal'
       };
     } catch {
-      return { enabled: true, style: 'rap', mode: 'auto' };
+      return { enabled: true, style: 'rap', mode: 'auto', syncMode: 'normal' };
     }
   }
 
@@ -49,6 +55,7 @@
     draft.subtitlesEnabled = choice.enabled !== false;
     draft.subtitleStyle = choice.style || 'rap';
     draft.subtitleMode = choice.mode || 'auto';
+    draft.subtitleSyncMode = choice.syncMode || 'normal';
   }
 
   function activeProject() {
@@ -69,20 +76,8 @@
     return (state.cache.media || []).find(m => m.id === id) || null;
   }
 
-  function getFinalVideo(project) {
-    const id = project?.config?.finalVideoMediaId;
-    if (!id) return null;
-    return (state.cache.media || []).find(m => m.id === id) || null;
-  }
-
   function getCleanVideoId(project) {
     return project?.config?.cleanVideoMediaId || project?.config?.originalFinalVideoMediaId || project?.config?.finalVideoMediaId || '';
-  }
-
-  async function getCleanVideo(project) {
-    const id = getCleanVideoId(project);
-    if (!id) return null;
-    return await getMedia(id);
   }
 
   function showMsg(message) {
@@ -102,6 +97,22 @@
     return data || {};
   }
 
+  function styleOptions(selected) {
+    return `
+      <option value="rap" ${selected === 'rap' ? 'selected' : ''}>Rap / clip officiel</option>
+      <option value="tiktok" ${selected === 'tiktok' ? 'selected' : ''}>TikTok dynamique</option>
+      <option value="classic" ${selected === 'classic' ? 'selected' : ''}>Classique propre</option>
+      <option value="cinema" ${selected === 'cinema' ? 'selected' : ''}>Cinéma sombre</option>
+    `;
+  }
+
+  function syncOptions(selected) {
+    return `
+      <option value="normal" ${selected === 'normal' ? 'selected' : ''}>Phrase par phrase</option>
+      <option value="karaoke" ${selected === 'karaoke' ? 'selected' : ''}>Suivi chanson mot par mot</option>
+    `;
+  }
+
   function preGenerationBox(kind) {
     const choice = getSavedChoice();
     const title = kind === 'speech' ? 'Sous-titres voix IA' : 'Sous-titres du clip';
@@ -112,7 +123,7 @@
           <h3>💬 ${title}</h3>
         </div>
         <p class="small-note">
-          Choisis maintenant le style. Après le rendu, OpenAI transcrit l’audio et l’application incruste automatiquement les sous-titres.
+          Choisis le style et le suivi avant le rendu. Le mode mot par mot suit mieux la chanson.
         </p>
         <div class="prompt-actions">
           <button type="button" class="${choice.enabled ? 'primary-btn' : 'secondary-btn'}" data-action="openai-set-subtitle-enabled" data-kind="${kind}" data-enabled="true">
@@ -124,15 +135,14 @@
         </div>
         <label class="field">
           <span>Style à incruster</span>
-          <select id="subtitleStyleBeforeRender" data-kind="${kind}">
-            <option value="rap" ${choice.style === 'rap' ? 'selected' : ''}>Rap / clip officiel</option>
-            <option value="tiktok" ${choice.style === 'tiktok' ? 'selected' : ''}>TikTok dynamique</option>
-            <option value="classic" ${choice.style === 'classic' ? 'selected' : ''}>Classique propre</option>
-            <option value="cinema" ${choice.style === 'cinema' ? 'selected' : ''}>Cinéma sombre</option>
-          </select>
+          <select id="subtitleStyleBeforeRender" data-kind="${kind}">${styleOptions(choice.style)}</select>
+        </label>
+        <label class="field">
+          <span>Calage avec la chanson</span>
+          <select id="subtitleSyncBeforeRender" data-kind="${kind}">${syncOptions(choice.syncMode)}</select>
         </label>
         <p class="small-note">
-          Mode actuel : ${choice.enabled ? `activé - ${STYLE_LABELS[choice.style] || choice.style}` : 'désactivé'}.
+          Mode actuel : ${choice.enabled ? `${STYLE_LABELS[choice.style] || choice.style} - ${SYNC_LABELS[choice.syncMode] || choice.syncMode}` : 'désactivé'}.
         </p>
       </div>
     `;
@@ -142,10 +152,12 @@
     const choice = getSavedChoice();
     const hasSrt = !!project?.config?.openAiSrt;
     const style = project?.config?.subtitleStyle || choice.style || 'rap';
+    const syncMode = project?.config?.subtitleSyncMode || choice.syncMode || 'normal';
     const videoReady = !!project?.config?.finalVideoMediaId;
     const autoEnabled = project?.config?.subtitlesEnabled !== false;
     const done = project?.config?.subtitledVideoMediaId;
     const subtitledStyle = project?.config?.subtitledStyle || '';
+    const subtitledSync = project?.config?.subtitledSyncMode || '';
 
     return `
       <div class="result-box" id="openaiSubtitlesBox">
@@ -153,23 +165,22 @@
           <h3>💬 Sous-titres OpenAI stylés</h3>
         </div>
         <p class="small-note">
-          ${done ? `Vidéo sous-titrée prête. Style incrusté : ${STYLE_LABELS[subtitledStyle] || subtitledStyle || '—'}.` : 'La transcription et l’incrustation se font automatiquement après le rendu si l’option est activée.'}
+          ${done ? `Vidéo sous-titrée prête. Style : ${STYLE_LABELS[subtitledStyle] || subtitledStyle || '—'} - ${SYNC_LABELS[subtitledSync] || subtitledSync || '—'}.` : 'Après le rendu, OpenAI transcrit puis incruste automatiquement.'}
         </p>
         <label class="field">
           <span>Style des sous-titres</span>
-          <select id="subtitleStyleSelect">
-            <option value="rap" ${style === 'rap' ? 'selected' : ''}>Rap / clip officiel</option>
-            <option value="tiktok" ${style === 'tiktok' ? 'selected' : ''}>TikTok dynamique</option>
-            <option value="classic" ${style === 'classic' ? 'selected' : ''}>Classique propre</option>
-            <option value="cinema" ${style === 'cinema' ? 'selected' : ''}>Cinéma sombre</option>
-          </select>
+          <select id="subtitleStyleSelect">${styleOptions(style)}</select>
+        </label>
+        <label class="field">
+          <span>Calage avec la chanson</span>
+          <select id="subtitleSyncSelect">${syncOptions(syncMode)}</select>
         </label>
         <div class="prompt-actions">
           <button type="button" class="secondary-btn" data-action="openai-transcribe-project">
             ${hasSrt ? 'Refaire la transcription' : 'Transcrire automatiquement'}
           </button>
           <button type="button" class="primary-btn" data-action="openai-burn-subtitles" ${hasSrt && videoReady ? '' : 'disabled'}>
-            ${done && subtitledStyle !== style ? 'Remplacer le style' : 'Incruster maintenant'}
+            ${done && (subtitledStyle !== style || subtitledSync !== syncMode) ? 'Remplacer le style' : 'Incruster maintenant'}
           </button>
         </div>
         <p class="small-note">
@@ -227,7 +238,8 @@
         ...project.config,
         subtitlesEnabled: choice.enabled !== false,
         subtitleStyle: choice.style || 'rap',
-        subtitleMode: choice.mode || 'auto'
+        subtitleMode: choice.mode || 'auto',
+        subtitleSyncMode: choice.syncMode || 'normal'
       }
     };
     await saveProject(next);
@@ -249,9 +261,11 @@
 
     const choice = getSavedChoice();
     const style = safeText(document.getElementById('subtitleStyleSelect')?.value || project.config?.subtitleStyle || choice.style || 'rap');
+    const syncMode = safeText(document.getElementById('subtitleSyncSelect')?.value || project.config?.subtitleSyncMode || choice.syncMode || 'normal');
     const form = new FormData();
     form.append('audio', audioMedia.blob, audioMedia.fileName || 'audio.mp3');
     form.append('subtitleStyle', style);
+    form.append('subtitleSyncMode', syncMode);
     form.append('aspectRatio', project.config?.aspectRatio || 'vertical');
 
     if (project.type === 'music') {
@@ -259,7 +273,7 @@
       form.append('audioEndSec', String(project.config?.audioEnd || 0));
     }
 
-    showMsg('Transcription OpenAI en cours...');
+    showMsg(syncMode === 'karaoke' ? 'Transcription mot par mot OpenAI...' : 'Transcription OpenAI en cours...');
 
     const response = await fetch(`${BACKEND_BASE_URL}/api/transcribe/srt`, {
       method: 'POST',
@@ -275,14 +289,16 @@
         ...project.config,
         openAiSrt: data.srt || '',
         openAiAss: data.ass || '',
+        openAiWords: data.words || [],
         subtitleStyle: style,
         subtitleMode: 'auto',
+        subtitleSyncMode: syncMode,
         subtitlesEnabled: true,
         subtitles: {
           ...(project.config?.subtitles || {}),
           enabled: true,
           plainText: data.srt || project.config?.subtitles?.plainText || '',
-          source: 'openai_whisper'
+          source: data.source || 'openai_whisper'
         }
       }
     };
@@ -311,18 +327,22 @@
     }
 
     const srt = safeText(project.config?.openAiSrt || '');
-    if (!srt) {
+    const ass = safeText(project.config?.openAiAss || '');
+    if (!srt && !ass) {
       showMsg('Transcris d’abord l’audio.');
       return null;
     }
 
     const choice = getSavedChoice();
     const style = safeText(document.getElementById('subtitleStyleSelect')?.value || project.config?.subtitleStyle || choice.style || 'rap');
+    const syncMode = safeText(document.getElementById('subtitleSyncSelect')?.value || project.config?.subtitleSyncMode || choice.syncMode || 'normal');
 
     const form = new FormData();
     form.append('video', cleanVideo.blob, cleanVideo.fileName || 'video.mp4');
     form.append('srt', srt);
+    form.append('ass', ass);
     form.append('subtitleStyle', style);
+    form.append('subtitleSyncMode', syncMode);
     form.append('aspectRatio', project.config?.aspectRatio || 'vertical');
 
     showMsg('Incrustation propre des sous-titres...');
@@ -347,13 +367,13 @@
       owner: state.profile,
       bucket: 'project-video',
       mediaType: 'video',
-      fileName: `${project.name.replace(/[^\w-]/g, '_')}_sous_titres_${style}.mp4`,
+      fileName: `${project.name.replace(/[^\w-]/g, '_')}_sous_titres_${style}_${syncMode}.mp4`,
       mimeType: 'video/mp4',
       size: blob.size || 0,
       createdAt: typeof nowISO === 'function' ? nowISO() : new Date().toISOString(),
       block: 'Vrac',
       orientation: project.config?.aspectRatio === 'horizontal' ? 'horizontal' : 'vertical',
-      tags: ['sous-titres', style],
+      tags: ['sous-titres', style, syncMode],
       blob
     };
 
@@ -367,7 +387,9 @@
       config: {
         ...project.config,
         subtitleStyle: style,
+        subtitleSyncMode: syncMode,
         subtitledStyle: style,
+        subtitledSyncMode: syncMode,
         cleanVideoMediaId: cleanVideoId,
         originalFinalVideoMediaId: cleanVideoId,
         finalVideoMediaId: media.id,
@@ -390,7 +412,11 @@
     if (!project || !['music', 'speech'].includes(project.type)) return;
 
     const choice = getSavedChoice();
-    if (project.config?.subtitleStyle !== choice.style || project.config?.subtitlesEnabled !== (choice.enabled !== false)) {
+    if (
+      project.config?.subtitleStyle !== choice.style ||
+      project.config?.subtitleSyncMode !== choice.syncMode ||
+      project.config?.subtitlesEnabled !== (choice.enabled !== false)
+    ) {
       project = await patchProjectWithChoice(project);
     }
 
@@ -399,16 +425,17 @@
     if (!project.config?.finalVideoMediaId) return;
 
     const wantedStyle = project.config?.subtitleStyle || choice.style || 'rap';
-    if (project.config?.subtitledVideoMediaId && project.config?.subtitledStyle === wantedStyle) return;
+    const wantedSync = project.config?.subtitleSyncMode || choice.syncMode || 'normal';
+    if (project.config?.subtitledVideoMediaId && project.config?.subtitledStyle === wantedStyle && project.config?.subtitledSyncMode === wantedSync) return;
 
     const cleanId = project.config?.cleanVideoMediaId || project.config?.originalFinalVideoMediaId || project.config?.finalVideoMediaId;
-    const key = `${project.id}_${cleanId}_${wantedStyle}`;
+    const key = `${project.id}_${cleanId}_${wantedStyle}_${wantedSync}`;
     if (autoJobs.has(key)) return;
     autoJobs.add(key);
 
     try {
       let updated = project;
-      if (!safeText(updated.config?.openAiSrt || '')) {
+      if (!safeText(updated.config?.openAiSrt || '') || updated.config?.subtitleSyncMode !== wantedSync) {
         updated = await transcribeProject(project);
       }
       if (updated) {
@@ -421,11 +448,12 @@
   }
 
   document.addEventListener('change', async (event) => {
-    const select = event.target.closest('#subtitleStyleBeforeRender, #subtitleStyleSelect');
+    const select = event.target.closest('#subtitleStyleBeforeRender, #subtitleStyleSelect, #subtitleSyncBeforeRender, #subtitleSyncSelect');
     if (!select) return;
 
     const choice = getSavedChoice();
-    choice.style = select.value || 'rap';
+    if (select.id.includes('Style')) choice.style = select.value || 'rap';
+    if (select.id.includes('Sync')) choice.syncMode = select.value || 'normal';
     choice.enabled = true;
     saveChoice(choice);
     setDraftChoice(select.dataset.kind || 'music', choice);
@@ -438,13 +466,16 @@
           ...project.config,
           subtitlesEnabled: true,
           subtitleStyle: choice.style,
-          subtitleMode: 'auto'
+          subtitleMode: 'auto',
+          subtitleSyncMode: choice.syncMode,
+          openAiSrt: select.id.includes('Sync') ? '' : project.config?.openAiSrt,
+          openAiAss: select.id.includes('Sync') ? '' : project.config?.openAiAss
         }
       });
       if (typeof render === 'function') render();
     }
 
-    showMsg(`Style sous-titres : ${STYLE_LABELS[choice.style] || choice.style}`);
+    showMsg(`Sous-titres : ${STYLE_LABELS[choice.style] || choice.style} - ${SYNC_LABELS[choice.syncMode] || choice.syncMode}`);
   });
 
   document.addEventListener('click', async (event) => {
@@ -456,6 +487,7 @@
         const choice = getSavedChoice();
         choice.enabled = target.dataset.enabled === 'true';
         choice.style = document.getElementById('subtitleStyleBeforeRender')?.value || choice.style || 'rap';
+        choice.syncMode = document.getElementById('subtitleSyncBeforeRender')?.value || choice.syncMode || 'normal';
         choice.mode = 'auto';
         saveChoice(choice);
         setDraftChoice(target.dataset.kind || 'music', choice);
@@ -483,5 +515,5 @@
     autoSubtitleIfReady();
   }, 900);
 
-  console.log('Interface sous-titres OpenAI active V24 réincrustation propre.');
+  console.log('Interface sous-titres OpenAI active V25 suivi chanson.');
 })();
