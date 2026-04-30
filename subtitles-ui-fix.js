@@ -7,12 +7,22 @@
     cinema: 'Cinéma sombre'
   };
 
+  const autoJobs = new Set();
+
+  function appReady() {
+    try {
+      return typeof state !== 'undefined' && typeof render === 'function';
+    } catch {
+      return false;
+    }
+  }
+
   function safeText(value) {
     return (value || '').toString().trim();
   }
 
   function activeProject() {
-    if (!window.state?.currentResultId) return null;
+    if (!appReady() || !state.currentResultId) return null;
     return (state.cache.projects || []).find(p => p.id === state.currentResultId) || null;
   }
 
@@ -56,14 +66,15 @@
     const hasSrt = !!project?.config?.openAiSrt;
     const style = project?.config?.subtitleStyle || 'rap';
     const videoReady = !!project?.config?.finalVideoMediaId;
+    const autoEnabled = project?.config?.subtitlesEnabled !== false;
 
     return `
       <div class="result-box" id="openaiSubtitlesBox">
         <div class="result-box-head">
-          <h3>Sous-titres OpenAI stylés</h3>
+          <h3>💬 Sous-titres OpenAI stylés</h3>
         </div>
         <p class="small-note">
-          Transcription audio réelle sans Gemini. Style actuel : ${STYLE_LABELS[style] || style}.
+          Transcription réelle de l’audio, sans Gemini. Si l’option sous-titres est activée, l’application peut les incruster après le rendu.
         </p>
         <label class="field">
           <span>Style des sous-titres</span>
@@ -83,15 +94,16 @@
           </button>
         </div>
         <p class="small-note">
-          ${hasSrt ? 'Transcription prête.' : 'Aucune transcription OpenAI pour ce projet.'}
-          ${videoReady ? ' Vidéo finale détectée.' : ' Crée d’abord la vidéo finale.'}
+          ${autoEnabled ? 'Sous-titres activés.' : 'Sous-titres désactivés.'}
+          ${hasSrt ? ' Transcription OpenAI prête.' : ' Transcription OpenAI pas encore faite.'}
+          ${videoReady ? ' Vidéo finale détectée.' : ' Attends la fin du rendu vidéo.'}
         </p>
       </div>
     `;
   }
 
   function injectBox() {
-    if (!window.state || state.route !== 'result') return;
+    if (!appReady() || state.route !== 'result') return;
     const project = activeProject();
     if (!project || !['music', 'speech'].includes(project.type)) return;
     if (document.getElementById('openaiSubtitlesBox')) return;
@@ -109,12 +121,18 @@
     if (typeof hydrateCache === 'function') await hydrateCache();
   }
 
-  async function transcribeProject() {
-    const project = activeProject();
-    if (!project) return showMsg('Projet introuvable.');
+  async function transcribeProject(projectArg = null) {
+    const project = projectArg || activeProject();
+    if (!project) {
+      showMsg('Projet introuvable.');
+      return null;
+    }
 
     const audioMedia = await getMedia(getAudioMediaId(project));
-    if (!audioMedia?.blob) return showMsg('Audio du projet introuvable.');
+    if (!audioMedia?.blob) {
+      showMsg('Audio du projet introuvable.');
+      return null;
+    }
 
     const style = safeText(document.getElementById('subtitleStyleSelect')?.value || project.config?.subtitleStyle || 'rap');
     const form = new FormData();
@@ -158,17 +176,27 @@
     state.currentResultId = next.id;
     if (typeof render === 'function') render();
     showMsg('Transcription OpenAI prête.');
+    return next;
   }
 
-  async function burnProjectSubtitles() {
-    const project = activeProject();
-    if (!project) return showMsg('Projet introuvable.');
+  async function burnProjectSubtitles(projectArg = null) {
+    const project = projectArg || activeProject();
+    if (!project) {
+      showMsg('Projet introuvable.');
+      return null;
+    }
 
     const finalVideo = getFinalVideo(project);
-    if (!finalVideo?.blob) return showMsg('Crée d’abord la vidéo finale.');
+    if (!finalVideo?.blob) {
+      showMsg('Crée d’abord la vidéo finale.');
+      return null;
+    }
 
     const srt = safeText(project.config?.openAiSrt || '');
-    if (!srt) return showMsg('Transcris d’abord l’audio.');
+    if (!srt) {
+      showMsg('Transcris d’abord l’audio.');
+      return null;
+    }
 
     const style = safeText(document.getElementById('subtitleStyleSelect')?.value || project.config?.subtitleStyle || 'rap');
 
@@ -231,6 +259,34 @@
     state.currentResultId = next.id;
     if (typeof render === 'function') render();
     showMsg('Vidéo sous-titrée prête.');
+    return next;
+  }
+
+  async function autoSubtitleIfReady() {
+    if (!appReady() || state.route !== 'result') return;
+    const project = activeProject();
+    if (!project || !['music', 'speech'].includes(project.type)) return;
+    if (project.config?.subtitlesEnabled === false) return;
+    if (project.config?.renderStatus !== 'done') return;
+    if (!project.config?.finalVideoMediaId) return;
+    if (project.config?.subtitledVideoMediaId) return;
+
+    const key = `${project.id}_${project.config.finalVideoMediaId}`;
+    if (autoJobs.has(key)) return;
+    autoJobs.add(key);
+
+    try {
+      let updated = project;
+      if (!safeText(updated.config?.openAiSrt || '')) {
+        updated = await transcribeProject(project);
+      }
+      if (updated) {
+        await burnProjectSubtitles(updated);
+      }
+    } catch (error) {
+      console.error(error);
+      showMsg(error.message || 'Erreur sous-titres OpenAI.');
+    }
   }
 
   document.addEventListener('click', async (event) => {
@@ -250,6 +306,10 @@
     }
   });
 
-  setInterval(injectBox, 700);
-  console.log('Interface sous-titres OpenAI active.');
+  setInterval(() => {
+    injectBox();
+    autoSubtitleIfReady();
+  }, 1000);
+
+  console.log('Interface sous-titres OpenAI active V20.');
 })();
