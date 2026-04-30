@@ -1,4 +1,4 @@
-/* Amélioration netteté vidéo gratuite - V32 : Propre HD automatique, Ultra 1080p manuel */
+/* Amélioration netteté vidéo gratuite - V36 : Propre HD avant sous-titres, jamais après */
 (function () {
   const choiceKey = 'video_sharpness_choice_v1';
   const labels = { normal: 'Normal', propre: 'Propre HD automatique', ultra: 'Ultra net 1080p manuel' };
@@ -31,6 +31,11 @@
   async function getMedia(id) { if (!id) return null; if (typeof mediaGetById === 'function') return await mediaGetById(id); return (state.cache.media || []).find(m => m.id === id) || null; }
   async function saveProject(project) { if (typeof projectPut !== 'function') throw new Error('Sauvegarde projet indisponible.'); await projectPut(project); if (typeof hydrateCache === 'function') await hydrateCache(); }
 
+  function isSubtitled(project) {
+    const cfg = project?.config || {};
+    return !!cfg.subtitledVideoMediaId && cfg.finalVideoMediaId === cfg.subtitledVideoMediaId;
+  }
+
   function autoOptions(selected) {
     return `
       <option value="propre" ${selected === 'propre' ? 'selected' : ''}>Propre HD automatique</option>
@@ -51,7 +56,7 @@
     return `
       <div class="result-box" id="videoQualityChoiceBox">
         <div class="result-box-head"><h3>✨ Netteté vidéo</h3></div>
-        <p class="small-note">Par défaut, l’application applique automatiquement Propre HD après le rendu. Le mode Ultra net 1080p se lance manuellement sur l’écran résultat.</p>
+        <p class="small-note">Propre HD s’applique automatiquement avant l’incrustation des sous-titres. Ultra 1080p reste manuel.</p>
         <label class="field"><span>Netteté automatique</span><select id="videoSharpnessBeforeRender">${autoOptions(mode)}</select></label>
         <p class="small-note">Mode automatique actuel : ${labels[mode] || mode}. Recommandé : Propre HD automatique.</p>
       </div>
@@ -62,13 +67,14 @@
     const mode = project?.config?.videoSharpnessMode || getChoice();
     const doneMode = project?.config?.enhancedVideoMode || '';
     const videoReady = !!project?.config?.finalVideoMediaId;
-    const manualText = mode === 'ultra' ? 'Ultra 1080p est manuel : appuie sur le bouton pour l’appliquer.' : 'Propre HD s’applique automatiquement après le rendu.';
+    const subtitled = isSubtitled(project);
+    const manualText = subtitled ? 'Sous-titres déjà incrustés : la netteté ne sera plus relancée pour ne pas effacer les sous-titres.' : (mode === 'ultra' ? 'Ultra 1080p est manuel : appuie sur le bouton pour l’appliquer avant les sous-titres.' : 'Propre HD s’applique automatiquement avant les sous-titres.');
     return `
       <div class="result-box" id="videoQualityResultBox">
         <div class="result-box-head"><h3>✨ Netteté vidéo</h3></div>
-        <p class="small-note">${doneMode ? `Vidéo améliorée : ${labels[doneMode] || doneMode}. Les sous-titres seront incrustés après.` : manualText}</p>
-        <label class="field"><span>Qualité visuelle</span><select id="videoSharpnessResult">${resultOptions(mode)}</select></label>
-        <div class="prompt-actions"><button type="button" class="primary-btn" data-action="enhance-video-now" ${videoReady ? '' : 'disabled'}>${mode === 'ultra' ? 'Appliquer Ultra 1080p' : 'Améliorer maintenant'}</button></div>
+        <p class="small-note">${doneMode && !subtitled ? `Vidéo améliorée : ${labels[doneMode] || doneMode}. Les sous-titres seront incrustés ensuite.` : manualText}</p>
+        <label class="field"><span>Qualité visuelle</span><select id="videoSharpnessResult" ${subtitled ? 'disabled' : ''}>${resultOptions(mode)}</select></label>
+        <div class="prompt-actions"><button type="button" class="primary-btn" data-action="enhance-video-now" ${videoReady && !subtitled ? '' : 'disabled'}>${mode === 'ultra' ? 'Appliquer Ultra 1080p' : 'Améliorer maintenant'}</button></div>
       </div>
     `;
   }
@@ -101,6 +107,8 @@
   async function enhanceVideo(projectArg = null, forcedMode = '') {
     let project = projectArg || activeProject();
     if (!project) return null;
+    if (isSubtitled(project)) return project;
+
     const mode = forcedMode || project.config?.videoSharpnessMode || getChoice();
     if (mode === 'normal') return project;
 
@@ -136,13 +144,20 @@
     if (typeof mediaPut !== 'function') throw new Error('Sauvegarde vidéo indisponible.');
     await mediaPut(media);
 
-    const cleanVideoId = project.config?.cleanVideoMediaId || project.config?.originalFinalVideoMediaId || project.config?.finalVideoMediaId;
+    if (typeof hydrateCache === 'function') await hydrateCache();
+    const freshProject = activeProject() || project;
+    if (isSubtitled(freshProject)) {
+      toast('Sous-titres déjà incrustés : netteté ignorée pour ne pas les effacer.');
+      return freshProject;
+    }
+
+    const cleanVideoId = freshProject.config?.cleanVideoMediaId || freshProject.config?.originalFinalVideoMediaId || freshProject.config?.finalVideoMediaId;
     const next = {
-      ...project,
+      ...freshProject,
       updatedAt: typeof nowISO === 'function' ? nowISO() : new Date().toISOString(),
       status: mode === 'ultra' ? 'Vidéo Ultra 1080p prête' : 'Vidéo Propre HD prête',
       config: {
-        ...project.config,
+        ...freshProject.config,
         videoSharpnessMode: mode,
         cleanVideoMediaId,
         originalFinalVideoMediaId: cleanVideoId,
@@ -169,6 +184,7 @@
     if (!ready() || state.route !== 'result') return;
     let project = activeProject();
     if (!project || !['music', 'speech'].includes(project.type)) return;
+    if (isSubtitled(project)) return;
 
     const mode = getAutoChoice();
     if (project.config?.videoSharpnessMode === 'ultra') return;
@@ -191,7 +207,7 @@
     const chosen = select.value || 'propre';
     saveChoice(chosen);
     const project = activeProject();
-    if (project && state.route === 'result') {
+    if (project && state.route === 'result' && !isSubtitled(project)) {
       await saveProject({ ...project, config: { ...project.config, videoSharpnessMode: chosen, enhancedVideoMediaId: null, enhancedVideoMode: null, subtitleBaseVideoMediaId: null, subtitledVideoMediaId: null } });
       if (typeof render === 'function') render();
     }
@@ -202,10 +218,11 @@
     const target = event.target.closest('[data-action="enhance-video-now"]');
     if (!target) return;
     const project = activeProject();
+    if (isSubtitled(project)) return toast('Sous-titres déjà incrustés : la netteté ne sera pas relancée.');
     const mode = project?.config?.videoSharpnessMode || getChoice();
     try { await enhanceVideo(project, mode); } catch (error) { console.error(error); toast(error.message || 'Erreur amélioration vidéo.'); }
   });
 
   setInterval(() => { injectPreBox(); injectResultBox(); autoEnhanceIfReady(); }, 1100);
-  console.log('Interface netteté vidéo active V32 : Propre HD auto, Ultra 1080p manuel.');
+  console.log('Interface netteté vidéo active V36 : Propre HD avant sous-titres, jamais après.');
 })();
