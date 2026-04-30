@@ -303,11 +303,6 @@ function buildKaraokeAssFromWords(words = [], styleName = "rap", aspectRatio = "
   return `${header}\n${body}\n`;
 }
 
-function assLooksUsable(ass) {
-  const text = safeText(ass);
-  return text.includes("[Script Info]") && text.includes("[V4+ Styles]") && text.includes("[Events]") && text.includes("Dialogue:");
-}
-
 function escapeFilterPath(filePath) {
   return filePath.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
@@ -373,14 +368,10 @@ function installSubtitleRoutes(app) {
       const style = safeText(req.body?.subtitleStyle || "rap") || "rap";
       const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
       const syncMode = safeText(req.body?.subtitleSyncMode || "normal") || "normal";
-      let ass = assLooksUsable(assFromClient) ? assFromClient : buildAssFromSrt(srt, style, aspectRatio);
 
-      // Sécurité V30 : si un ancien ASS karaoké était mal échappé, on force un ASS propre depuis le SRT.
-      if (ass.includes("{\\\\k") || !assLooksUsable(ass)) {
-        log(id, "ASS FALLBACK", "rebuild from srt");
-        ass = buildAssFromSrt(srt, style, aspectRatio);
-      }
-
+      // V31 sécurité maximale : on n'utilise plus l'ASS reçu du téléphone pour l'incrustation.
+      // FFmpeg reconstruit un fichier ASS propre côté Render depuis le SRT, donc sortie vidéo directe avec sous-titres.
+      const ass = srt ? buildAssFromSrt(srt, style, aspectRatio) : assFromClient;
       const assPath = path.join(workDir, "subtitles.ass");
       const outputPath = path.join(workDir, "video_subtitled.mp4");
       await fsp.writeFile(assPath, ass, "utf8");
@@ -405,7 +396,7 @@ function installSubtitleRoutes(app) {
     }
   });
 
-  console.log("Routes sous-titres OpenAI chargées V30 correction ASS libass.");
+  console.log("Routes sous-titres OpenAI chargées V31 incrustation Render directe.");
 }
 
 const originalListen = express.application.listen;
