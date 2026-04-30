@@ -1,4 +1,4 @@
-/* V33 - Sous-titres stables : phrase par phrase + incrustation Render réelle */
+/* V34 - Sous-titres calés : transcription sur la vidéo finale, pas sur l'audio brut */
 (function () {
   const choiceKey = 'openai_subtitle_style_choice_v3';
   let transcribeLock = false;
@@ -99,18 +99,41 @@
     return cfg.subtitleBaseVideoMediaId || cfg.enhancedVideoMediaId || cfg.cleanVideoMediaId || cfg.originalFinalVideoMediaId || cfg.finalVideoMediaId || '';
   }
 
+  async function getBestTranscriptionSource(project) {
+    const videoId = getBaseVideoId(project);
+    const videoMedia = await getMedia(videoId);
+    if (videoMedia?.blob) {
+      return {
+        media: videoMedia,
+        fileName: videoMedia.fileName || 'video_finale.mp4',
+        useVideoTimeline: true
+      };
+    }
+
+    const audioMedia = await getMedia(getAudioMediaId(project));
+    if (audioMedia?.blob) {
+      return {
+        media: audioMedia,
+        fileName: audioMedia.fileName || 'audio.mp3',
+        useVideoTimeline: false
+      };
+    }
+
+    return null;
+  }
+
   function preGenerationBox(kind) {
     const choice = getChoice();
     return `
       <div class="result-box" id="openaiSubtitleChoiceBox">
         <div class="result-box-head"><h3>💬 Sous-titres vidéo</h3></div>
-        <p class="small-note">Mode stable : phrase par phrase. Le mode mot par mot est désactivé temporairement pour ne pas casser la vidéo finale.</p>
+        <p class="small-note">Mode stable : phrase par phrase. Après le rendu, la transcription se fait sur la vidéo finale pour rester calée sur la musique.</p>
         <div class="prompt-actions">
           <button type="button" class="${choice.enabled ? 'primary-btn' : 'secondary-btn'}" data-action="openai-set-subtitle-enabled" data-kind="${kind}" data-enabled="true">Avec sous-titres</button>
           <button type="button" class="${choice.enabled ? 'secondary-btn' : 'primary-btn'}" data-action="openai-set-subtitle-enabled" data-kind="${kind}" data-enabled="false">Sans sous-titres</button>
         </div>
         <label class="field"><span>Style des sous-titres</span><select id="subtitleStyleBeforeRender" data-kind="${kind}">${styleOptions(choice.style)}</select></label>
-        <p class="small-note">Calage : Phrase par phrase stable.</p>
+        <p class="small-note">Calage : Phrase par phrase sur la vidéo finale.</p>
       </div>
     `;
   }
@@ -126,11 +149,11 @@
     return `
       <div class="result-box" id="openaiSubtitlesBox">
         <div class="result-box-head"><h3>💬 Sous-titres OpenAI stylés</h3></div>
-        <p class="small-note">${done ? 'Vidéo finale sous-titrée prête.' : 'Phrase par phrase stable. Clique sur Incruster pour graver les sous-titres dans la vidéo via Render.'}</p>
+        <p class="small-note">${done ? 'Vidéo finale sous-titrée prête.' : 'Phrase par phrase stable. Refaire la transcription utilise la vidéo finale pour mieux suivre la musique.'}</p>
         <label class="field"><span>Style des sous-titres</span><select id="subtitleStyleSelect">${styleOptions(style)}</select></label>
-        <label class="field"><span>Calage</span><select id="subtitleSyncSelect" disabled><option value="normal" selected>Phrase par phrase stable</option></select></label>
+        <label class="field"><span>Calage</span><select id="subtitleSyncSelect" disabled><option value="normal" selected>Phrase par phrase sur vidéo finale</option></select></label>
         <div class="prompt-actions">
-          <button type="button" class="secondary-btn" data-action="openai-transcribe-project">${hasSrt ? 'Refaire la transcription' : 'Transcrire automatiquement'}</button>
+          <button type="button" class="secondary-btn" data-action="openai-transcribe-project">${hasSrt ? 'Refaire la transcription calée' : 'Transcrire automatiquement'}</button>
           <button type="button" class="primary-btn" data-action="openai-burn-subtitles" ${hasSrt && videoReady && !done ? '' : 'disabled'}>${done ? 'Sous-titres incrustés' : 'Incruster dans la vidéo'}</button>
         </div>
         <p class="small-note">${hasSrt ? 'Transcription OpenAI prête.' : 'Transcription à faire.'} ${videoReady ? 'Vidéo finale détectée.' : 'Vidéo pas encore prête.'}</p>
@@ -194,22 +217,23 @@
     try {
       const project = projectArg || activeProject();
       if (!project) throw new Error('Projet introuvable.');
-      const audioMedia = await getMedia(getAudioMediaId(project));
-      if (!audioMedia?.blob) throw new Error('Audio du projet introuvable.');
+      const source = await getBestTranscriptionSource(project);
+      if (!source?.media?.blob) throw new Error('Audio ou vidéo du projet introuvable.');
       const choice = getChoice();
       const style = clean(document.getElementById('subtitleStyleSelect')?.value || project.config?.subtitleStyle || choice.style || 'classic');
 
       const form = new FormData();
-      form.append('audio', audioMedia.blob, audioMedia.fileName || 'audio.mp3');
+      form.append('audio', source.media.blob, source.fileName);
       form.append('subtitleStyle', style);
       form.append('subtitleSyncMode', 'normal');
       form.append('aspectRatio', project.config?.aspectRatio || 'vertical');
-      if (project.type === 'music') {
+
+      if (!source.useVideoTimeline && project.type === 'music') {
         form.append('audioStartSec', String(project.config?.audioStart || 0));
         form.append('audioEndSec', String(project.config?.audioEnd || 0));
       }
 
-      toast('Transcription OpenAI phrase par phrase...');
+      toast(source.useVideoTimeline ? 'Transcription calée sur la vidéo finale...' : 'Transcription OpenAI phrase par phrase...');
       const response = await fetch(`${BACKEND_BASE_URL}/api/transcribe/srt`, { method: 'POST', body: form });
       let data = null;
       try { data = await response.json(); } catch {}
@@ -229,13 +253,15 @@
           subtitleStyle: style,
           subtitleMode: 'auto',
           subtitleSyncMode: 'normal',
+          subtitleTranscriptionSource: source.useVideoTimeline ? 'final_video' : 'audio_source',
           subtitlesEnabled: true,
+          subtitledVideoMediaId: null,
           subtitles: {
             ...(project.config?.subtitles || {}),
             enabled: true,
             srt,
             plainText: srt,
-            source: 'openai_whisper_phrase'
+            source: source.useVideoTimeline ? 'openai_whisper_final_video' : 'openai_whisper_audio'
           }
         }
       };
@@ -243,7 +269,7 @@
       await saveProject(next);
       state.currentResultId = next.id;
       if (typeof render === 'function') render();
-      toast('Transcription prête.');
+      toast('Transcription calée prête.');
       return next;
     } finally {
       transcribeLock = false;
@@ -379,5 +405,5 @@
   });
 
   setInterval(() => { injectPreGenerationBox(); injectResultBox(); autoSubtitleIfReady(); }, 900);
-  console.log('Interface sous-titres OpenAI active V33 : phrase stable + incrustation Render.');
+  console.log('Interface sous-titres OpenAI active V34 : transcription calée sur vidéo finale.');
 })();
