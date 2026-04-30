@@ -116,6 +116,45 @@ function srtTimeToAss(value) {
   return `${h}:${m}:${s}.${cs}`;
 }
 
+function normalizeSubtitleText(text) {
+  return safeText(text)
+    .replace(/\\N/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function wrapSubtitleText(text, aspectRatio = "vertical", styleName = "rap") {
+  const clean = normalizeSubtitleText(text);
+  if (!clean) return "";
+
+  const vertical = aspectRatio !== "horizontal";
+  const maxChars = vertical ? (styleName === "tiktok" ? 22 : 26) : 42;
+  const maxLines = 2;
+  const words = clean.split(" ").filter(Boolean);
+  const lines = [];
+  let line = "";
+
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (next.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+      if (lines.length >= maxLines) break;
+    } else {
+      line = next;
+    }
+  }
+
+  if (line && lines.length < maxLines) lines.push(line);
+
+  const usedWordCount = lines.join(" ").split(" ").filter(Boolean).length;
+  if (usedWordCount < words.length && lines.length) {
+    lines[lines.length - 1] = `${lines[lines.length - 1].replace(/[,.!?;:]$/, "")}…`;
+  }
+
+  return lines.join("\\N");
+}
+
 function parseSrt(srt) {
   const blocks = safeText(srt)
     .replace(/\r/g, "")
@@ -131,7 +170,7 @@ function parseSrt(srt) {
     if (timeIndex === -1) continue;
 
     const [startRaw, endRaw] = lines[timeIndex].split("-->").map((part) => part.trim());
-    const text = lines.slice(timeIndex + 1).join("\\N").replace(/\{[^}]*\}/g, "");
+    const text = lines.slice(timeIndex + 1).join(" ").replace(/\{[^}]*\}/g, "");
 
     if (!text) continue;
 
@@ -149,8 +188,7 @@ function escapeAssText(text) {
   return safeText(text)
     .replace(/\\/g, "\\\\")
     .replace(/\{/g, "")
-    .replace(/\}/g, "")
-    .replace(/\n/g, "\\N");
+    .replace(/\}/g, "");
 }
 
 function subtitleStyle(styleName, aspectRatio) {
@@ -158,35 +196,35 @@ function subtitleStyle(styleName, aspectRatio) {
 
   const styles = {
     classic: {
-      fontSize: vertical ? 48 : 38,
+      fontSize: vertical ? 38 : 32,
       primary: "&H00FFFFFF",
       outline: 3,
       shadow: 1,
-      marginV: vertical ? 92 : 54,
+      marginV: vertical ? 120 : 56,
       bold: -1
     },
     tiktok: {
-      fontSize: vertical ? 58 : 44,
+      fontSize: vertical ? 42 : 36,
       primary: "&H0000FFFF",
-      outline: 5,
+      outline: 4,
       shadow: 2,
-      marginV: vertical ? 142 : 70,
+      marginV: vertical ? 145 : 70,
       bold: -1
     },
     cinema: {
-      fontSize: vertical ? 44 : 34,
+      fontSize: vertical ? 34 : 30,
       primary: "&H00F4F4F4",
       outline: 2,
       shadow: 1,
-      marginV: vertical ? 84 : 48,
+      marginV: vertical ? 105 : 48,
       bold: 0
     },
     rap: {
-      fontSize: vertical ? 56 : 42,
+      fontSize: vertical ? 40 : 34,
       primary: "&H00FFFFFF",
-      outline: 5,
+      outline: 4,
       shadow: 2,
-      marginV: vertical ? 110 : 62,
+      marginV: vertical ? 125 : 62,
       bold: -1
     }
   };
@@ -205,17 +243,20 @@ ScriptType: v4.00+
 PlayResX: ${playResX}
 PlayResY: ${playResY}
 ScaledBorderAndShadow: yes
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Main,Arial,${st.fontSize},${st.primary},&H000000FF,&H00000000,&H90000000,${st.bold},0,0,0,100,100,0,0,1,${st.outline},${st.shadow},2,40,40,${st.marginV},1
+Style: Main,Arial,${st.fontSize},${st.primary},&H000000FF,&H00000000,&H90000000,${st.bold},0,0,0,100,100,0,0,1,${st.outline},${st.shadow},2,58,58,${st.marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
 
   const body = cues
-    .map((cue) => `Dialogue: 0,${cue.start},${cue.end},Main,,0,0,0,,${escapeAssText(cue.text)}`)
+    .map((cue) => {
+      const wrapped = wrapSubtitleText(cue.text, aspectRatio, styleName);
+      return `Dialogue: 0,${cue.start},${cue.end},Main,,0,0,0,,${escapeAssText(wrapped)}`;
+    })
     .join("\n");
 
   return `${header}\n${body}\n`;
@@ -265,7 +306,7 @@ function installSubtitleRoutes(app) {
       const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
       const ass = buildAssFromSrt(cleanSrt, style, aspectRatio);
 
-      log(id, "OPENAI TRANSCRIBE OK", `${cleanSrt.length} chars`);
+      log(id, "OPENAI TRANSCRIBE OK", `${cleanSrt.length} chars style=${style}`);
 
       res.json({
         ok: true,
@@ -335,7 +376,7 @@ function installSubtitleRoutes(app) {
             outputPath
           ],
           id,
-          "burn subtitles"
+          `burn subtitles style=${style}`
         );
 
         const stat = await fsp.stat(outputPath);
@@ -368,7 +409,7 @@ function installSubtitleRoutes(app) {
     }
   );
 
-  console.log("Routes sous-titres OpenAI chargées.");
+  console.log("Routes sous-titres OpenAI chargées V21 affichage adapté.");
 }
 
 const originalListen = express.application.listen;
