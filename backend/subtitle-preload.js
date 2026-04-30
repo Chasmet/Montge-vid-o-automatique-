@@ -103,6 +103,28 @@ async function prepareAudioForTranscription(inputPath, workDir, id, startSec, en
   return outputPath;
 }
 
+function secondsToSrtTime(value) {
+  const totalMs = Math.max(0, Math.round(safeNumber(value, 0) * 1000));
+  const ms = totalMs % 1000;
+  const totalSeconds = Math.floor(totalMs / 1000);
+  const s = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const m = totalMinutes % 60;
+  const h = Math.floor(totalMinutes / 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+}
+
+function secondsToAssTime(value) {
+  const totalCs = Math.max(0, Math.round(safeNumber(value, 0) * 100));
+  const cs = totalCs % 100;
+  const totalSeconds = Math.floor(totalCs / 100);
+  const s = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const m = totalMinutes % 60;
+  const h = Math.floor(totalMinutes / 60);
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
 function srtTimeToAss(value) {
   const clean = safeText(value).replace(",", ".");
   const match = clean.match(/(\d+):(\d+):(\d+)\.(\d+)/);
@@ -184,11 +206,56 @@ function parseSrt(srt) {
   return cues;
 }
 
+function normalizeWords(words = []) {
+  return (Array.isArray(words) ? words : [])
+    .map((item) => ({
+      word: normalizeSubtitleText(item.word || item.text || ""),
+      start: safeNumber(item.start, 0),
+      end: safeNumber(item.end, 0)
+    }))
+    .filter((item) => item.word && item.end > item.start)
+    .sort((a, b) => a.start - b.start);
+}
+
+function buildSrtFromWords(words = []) {
+  const cleanWords = normalizeWords(words);
+  const groups = [];
+  let current = [];
+
+  for (const word of cleanWords) {
+    const first = current[0];
+    const duration = first ? word.end - first.start : 0;
+    const textLength = [...current, word].map((w) => w.word).join(" ").length;
+
+    if (current.length && (current.length >= 6 || duration >= 2.4 || textLength > 34)) {
+      groups.push(current);
+      current = [word];
+    } else {
+      current.push(word);
+    }
+  }
+
+  if (current.length) groups.push(current);
+
+  return groups
+    .map((group, index) => {
+      const start = group[0].start;
+      const end = group[group.length - 1].end;
+      const text = group.map((w) => w.word).join(" ");
+      return `${index + 1}\n${secondsToSrtTime(start)} --> ${secondsToSrtTime(end)}\n${text}`;
+    })
+    .join("\n\n");
+}
+
 function escapeAssText(text) {
   return safeText(text)
     .replace(/\\/g, "\\\\")
     .replace(/\{/g, "")
     .replace(/\}/g, "");
+}
+
+function escapeKaraokeWord(text) {
+  return escapeAssText(text).replace(/\s+/g, " ").trim();
 }
 
 function subtitleStyle(styleName, aspectRatio) {
@@ -198,6 +265,7 @@ function subtitleStyle(styleName, aspectRatio) {
     classic: {
       fontSize: vertical ? 38 : 32,
       primary: "&H00FFFFFF",
+      secondary: "&H0000FFFF",
       outline: 3,
       shadow: 1,
       marginV: vertical ? 120 : 56,
@@ -206,6 +274,7 @@ function subtitleStyle(styleName, aspectRatio) {
     tiktok: {
       fontSize: vertical ? 42 : 36,
       primary: "&H0000FFFF",
+      secondary: "&H00FFFFFF",
       outline: 4,
       shadow: 2,
       marginV: vertical ? 145 : 70,
@@ -214,6 +283,7 @@ function subtitleStyle(styleName, aspectRatio) {
     cinema: {
       fontSize: vertical ? 34 : 30,
       primary: "&H00F4F4F4",
+      secondary: "&H00E5E5E5",
       outline: 2,
       shadow: 1,
       marginV: vertical ? 105 : 48,
@@ -222,6 +292,7 @@ function subtitleStyle(styleName, aspectRatio) {
     rap: {
       fontSize: vertical ? 40 : 34,
       primary: "&H00FFFFFF",
+      secondary: "&H0000FFFF",
       outline: 4,
       shadow: 2,
       marginV: vertical ? 125 : 62,
@@ -232,13 +303,12 @@ function subtitleStyle(styleName, aspectRatio) {
   return styles[styleName] || styles.rap;
 }
 
-function buildAssFromSrt(srt, styleName = "rap", aspectRatio = "vertical") {
-  const cues = parseSrt(srt);
+function assHeader(styleName = "rap", aspectRatio = "vertical") {
   const st = subtitleStyle(styleName, aspectRatio);
   const playResX = aspectRatio === "horizontal" ? 1280 : 720;
   const playResY = aspectRatio === "horizontal" ? 720 : 1280;
 
-  const header = `[Script Info]
+  return `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${playResX}
 PlayResY: ${playResY}
@@ -247,15 +317,62 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Main,Arial,${st.fontSize},${st.primary},&H000000FF,&H00000000,&H90000000,${st.bold},0,0,0,100,100,0,0,1,${st.outline},${st.shadow},2,58,58,${st.marginV},1
+Style: Main,Arial,${st.fontSize},${st.primary},${st.secondary},&H00000000,&H90000000,${st.bold},0,0,0,100,100,0,0,1,${st.outline},${st.shadow},2,58,58,${st.marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`;
+}
+
+function buildAssFromSrt(srt, styleName = "rap", aspectRatio = "vertical") {
+  const cues = parseSrt(srt);
+  const header = assHeader(styleName, aspectRatio);
 
   const body = cues
     .map((cue) => {
       const wrapped = wrapSubtitleText(cue.text, aspectRatio, styleName);
       return `Dialogue: 0,${cue.start},${cue.end},Main,,0,0,0,,${escapeAssText(wrapped)}`;
+    })
+    .join("\n");
+
+  return `${header}\n${body}\n`;
+}
+
+function buildKaraokeAssFromWords(words = [], styleName = "rap", aspectRatio = "vertical") {
+  const cleanWords = normalizeWords(words);
+  const header = assHeader(styleName, aspectRatio);
+  const maxWords = aspectRatio === "horizontal" ? 8 : 5;
+  const maxDuration = aspectRatio === "horizontal" ? 3.4 : 2.6;
+  const groups = [];
+  let current = [];
+
+  for (const word of cleanWords) {
+    const first = current[0];
+    const duration = first ? word.end - first.start : 0;
+    const textLength = [...current, word].map((w) => w.word).join(" ").length;
+
+    if (current.length && (current.length >= maxWords || duration >= maxDuration || textLength > 30)) {
+      groups.push(current);
+      current = [word];
+    } else {
+      current.push(word);
+    }
+  }
+
+  if (current.length) groups.push(current);
+
+  const body = groups
+    .map((group) => {
+      const start = group[0].start;
+      const end = group[group.length - 1].end;
+      const text = group
+        .map((word) => {
+          const centis = Math.max(8, Math.round((word.end - word.start) * 100));
+          return `{\\k${centis}}${escapeKaraokeWord(word.word)} `;
+        })
+        .join("")
+        .trim();
+
+      return `Dialogue: 0,${secondsToAssTime(start)},${secondsToAssTime(end)},Main,,0,0,0,,${text}`;
     })
     .join("\n");
 
@@ -291,6 +408,38 @@ function installSubtitleRoutes(app) {
       const startSec = safeNumber(req.body?.audioStartSec, 0);
       const endSec = safeNumber(req.body?.audioEndSec, 0);
       const preparedAudio = await prepareAudioForTranscription(file.path, workDir, id, startSec, endSec);
+      const style = safeText(req.body?.subtitleStyle || "rap") || "rap";
+      const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
+      const syncMode = safeText(req.body?.subtitleSyncMode || "normal") || "normal";
+
+      if (syncMode === "karaoke") {
+        log(id, "OPENAI TRANSCRIBE START", "whisper-1 word timestamps karaoke");
+
+        const verbose = await client.audio.transcriptions.create({
+          file: fs.createReadStream(preparedAudio),
+          model: "whisper-1",
+          response_format: "verbose_json",
+          timestamp_granularities: ["word"],
+          language: "fr"
+        });
+
+        const words = normalizeWords(verbose?.words || []);
+        const srt = buildSrtFromWords(words);
+        const ass = buildKaraokeAssFromWords(words, style, aspectRatio);
+
+        log(id, "OPENAI TRANSCRIBE OK", `${words.length} words style=${style} sync=karaoke`);
+
+        return res.json({
+          ok: true,
+          source: "openai_whisper_words",
+          model: "whisper-1",
+          syncMode,
+          srt,
+          ass,
+          words,
+          style
+        });
+      }
 
       log(id, "OPENAI TRANSCRIBE START", TRANSCRIBE_MODEL);
 
@@ -302,16 +451,15 @@ function installSubtitleRoutes(app) {
       });
 
       const cleanSrt = typeof srt === "string" ? srt : String(srt || "");
-      const style = safeText(req.body?.subtitleStyle || "rap") || "rap";
-      const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
       const ass = buildAssFromSrt(cleanSrt, style, aspectRatio);
 
-      log(id, "OPENAI TRANSCRIBE OK", `${cleanSrt.length} chars style=${style}`);
+      log(id, "OPENAI TRANSCRIBE OK", `${cleanSrt.length} chars style=${style} sync=normal`);
 
       res.json({
         ok: true,
         source: "openai_whisper",
         model: TRANSCRIBE_MODEL,
+        syncMode,
         srt: cleanSrt,
         ass,
         style
@@ -342,7 +490,8 @@ function installSubtitleRoutes(app) {
         }
 
         const srt = safeText(req.body?.srt || "");
-        if (!srt) {
+        const assFromClient = safeText(req.body?.ass || "");
+        if (!srt && !assFromClient) {
           return res.status(400).json({ ok: false, error: "Sous-titres manquants." });
         }
 
@@ -350,7 +499,7 @@ function installSubtitleRoutes(app) {
 
         const style = safeText(req.body?.subtitleStyle || "rap") || "rap";
         const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
-        const ass = buildAssFromSrt(srt, style, aspectRatio);
+        const ass = assFromClient || buildAssFromSrt(srt, style, aspectRatio);
         const assPath = path.join(workDir, "subtitles.ass");
         const outputPath = path.join(workDir, "video_subtitled.mp4");
 
@@ -409,7 +558,7 @@ function installSubtitleRoutes(app) {
     }
   );
 
-  console.log("Routes sous-titres OpenAI chargées V21 affichage adapté.");
+  console.log("Routes sous-titres OpenAI chargées V25 suivi chanson mot par mot.");
 }
 
 const originalListen = express.application.listen;
