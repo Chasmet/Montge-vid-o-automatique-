@@ -1,7 +1,8 @@
-/* V39 - Outil CapCut : upload vidéo complète puis sous-titres OpenAI complets */
+/* V40 - Outil séparé CapCut : carte indépendante sur Accueil + panneau dédié */
 (function () {
-  const VERSION = 'V39';
+  const VERSION = 'V40';
   let busy = false;
+  let panelOpen = false;
   let selectedVideo = null;
   let selectedVideoUrl = '';
   let lastResultBlob = null;
@@ -82,68 +83,126 @@
     `;
   }
 
-  function renderToolBox() {
+  function injectCard() {
+    if (!ready()) return;
+    if (state.route !== 'dashboard') return;
+    if (document.getElementById('capcutOpenAiCard')) return;
+
+    const grid = document.querySelector('#screen .app-grid') || document.querySelector('#screen');
+    if (!grid) return;
+
+    const card = document.createElement('button');
+    card.id = 'capcutOpenAiCard';
+    card.type = 'button';
+    card.className = 'profile-card dashboard-card result-box';
+    card.setAttribute('data-action', 'open-capcut-openai-panel');
+    card.style.textAlign = 'left';
+    card.style.width = '100%';
+    card.innerHTML = `
+      <div class="profile-icon">🎞️</div>
+      <div>
+        <h3>Sous-titres CapCut</h3>
+        <p>Upload une vidéo complète et OpenAI incruste les sous-titres.</p>
+      </div>
+      <span class="small-note">Outil séparé</span>
+    `;
+
+    grid.appendChild(card);
+  }
+
+  function ensurePanelStyles() {
+    if (document.getElementById('capcutOpenAiStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'capcutOpenAiStyles';
+    style.textContent = `
+      .capcut-panel-backdrop{position:fixed;inset:0;z-index:9999;background:rgba(2,6,23,.82);backdrop-filter:blur(12px);display:flex;align-items:flex-end;justify-content:center;padding:12px;}
+      .capcut-panel{width:100%;max-width:720px;max-height:92vh;overflow:auto;border:1px solid rgba(148,163,184,.25);border-radius:24px;background:var(--panel,#0f172a);box-shadow:0 24px 80px rgba(0,0,0,.45);padding:16px;}
+      .capcut-panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px;}
+      .capcut-panel-head h2{margin:0;font-size:1.2rem;}
+      .capcut-close{min-width:44px;height:44px;border-radius:999px;border:1px solid rgba(148,163,184,.25);background:rgba(15,23,42,.9);color:inherit;font-size:1.2rem;}
+      .capcut-preview{width:100%;max-height:360px;border-radius:18px;background:#000;margin:10px 0;}
+      .capcut-mini-result{margin-top:14px;padding-top:14px;border-top:1px solid rgba(148,163,184,.18);}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function renderPanelContent() {
     const fileName = selectedVideo?.name || 'Aucune vidéo choisie';
+    const ratio = localStorage.getItem('capcut_subtitle_ratio') || 'vertical';
+    const style = localStorage.getItem('capcut_subtitle_style') || 'classic';
+
     return `
-      <section class="result-box" id="capcutOpenAiSubtitlesBox">
-        <div class="result-box-head"><h3>🎞️ Sous-titres OpenAI pour vidéo CapCut</h3></div>
-        <p class="small-note">Tu fais ton clip complet dans CapCut, tu l’uploades ici, puis OpenAI transcrit toute la vidéo et Render incruste les sous-titres dans un nouveau MP4.</p>
+      <div class="capcut-panel-head">
+        <div>
+          <p class="eyebrow">Outil séparé</p>
+          <h2>🎞️ Sous-titres OpenAI pour vidéo CapCut</h2>
+          <p class="small-note">Cette case ne touche pas au montage IA. Elle sert seulement à sous-titrer une vidéo complète déjà montée.</p>
+        </div>
+        <button type="button" class="capcut-close" data-action="close-capcut-openai-panel" aria-label="Fermer">×</button>
+      </div>
 
+      <label class="field">
+        <span>Vidéo complète CapCut</span>
+        <input id="capcutVideoInput" type="file" accept="video/*" />
+      </label>
+      <p class="small-note">Fichier : ${fileName}</p>
+
+      ${selectedVideoUrl ? `<video class="capcut-preview" controls playsinline preload="metadata" src="${selectedVideoUrl}"></video>` : ''}
+
+      <div class="grid two">
         <label class="field">
-          <span>Vidéo complète CapCut</span>
-          <input id="capcutVideoInput" type="file" accept="video/*" />
+          <span>Format vidéo</span>
+          <select id="capcutAspectRatio">${orientationOptions(ratio)}</select>
         </label>
+        <label class="field">
+          <span>Style sous-titres</span>
+          <select id="capcutSubtitleStyle">${styleOptions(style)}</select>
+        </label>
+      </div>
 
-        <p class="small-note">Fichier : ${fileName}</p>
+      <div class="prompt-actions">
+        <button type="button" class="primary-btn" data-action="capcut-openai-subtitle" ${selectedVideo && !busy ? '' : 'disabled'}>
+          ${busy ? 'Traitement en cours...' : 'Créer vidéo sous-titrée OpenAI'}
+        </button>
+      </div>
 
-        ${selectedVideoUrl ? `
-          <video class="result-video" controls playsinline preload="metadata" src="${selectedVideoUrl}"></video>
-        ` : ''}
+      <p class="small-note">Ordre : upload vidéo complète → OpenAI transcrit tout → Render incruste → téléchargement.</p>
 
-        <div class="grid two">
-          <label class="field">
-            <span>Format vidéo</span>
-            <select id="capcutAspectRatio">${orientationOptions(localStorage.getItem('capcut_subtitle_ratio') || 'vertical')}</select>
-          </label>
-          <label class="field">
-            <span>Style sous-titres</span>
-            <select id="capcutSubtitleStyle">${styleOptions(localStorage.getItem('capcut_subtitle_style') || 'classic')}</select>
-          </label>
-        </div>
-
-        <div class="prompt-actions">
-          <button type="button" class="primary-btn" data-action="capcut-openai-subtitle" ${selectedVideo && !busy ? '' : 'disabled'}>
-            ${busy ? 'Traitement en cours...' : 'Créer vidéo sous-titrée OpenAI'}
-          </button>
-        </div>
-
-        ${lastResultUrl ? `
-          <div class="result-box mini-box">
-            <div class="result-box-head"><h3>✅ Vidéo sous-titrée prête</h3></div>
-            <video class="result-video" controls playsinline preload="metadata" src="${lastResultUrl}"></video>
-            <div class="prompt-actions">
-              <button type="button" class="primary-btn" data-action="capcut-download-final">Télécharger la vidéo sous-titrée</button>
-              <button type="button" class="secondary-btn" data-action="capcut-copy-srt">Copier le SRT OpenAI</button>
-            </div>
+      ${lastResultUrl ? `
+        <div class="capcut-mini-result">
+          <h3>✅ Vidéo sous-titrée prête</h3>
+          <video class="capcut-preview" controls playsinline preload="metadata" src="${lastResultUrl}"></video>
+          <div class="prompt-actions">
+            <button type="button" class="primary-btn" data-action="capcut-download-final">Télécharger la vidéo sous-titrée</button>
+            <button type="button" class="secondary-btn" data-action="capcut-copy-srt">Copier le SRT OpenAI</button>
           </div>
-        ` : ''}
-      </section>
+        </div>
+      ` : ''}
     `;
   }
 
-  function injectBox() {
-    if (!ready()) return;
-    if (!['dashboard', 'projects'].includes(state.route)) return;
-    if (document.getElementById('capcutOpenAiSubtitlesBox')) return;
-    const target = document.querySelector('#screen .app-grid') || document.querySelector('#screen');
-    if (!target) return;
-    target.insertAdjacentHTML('afterbegin', renderToolBox());
+  function openPanel() {
+    ensurePanelStyles();
+    panelOpen = true;
+    let backdrop = document.getElementById('capcutOpenAiPanelBackdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.id = 'capcutOpenAiPanelBackdrop';
+      backdrop.className = 'capcut-panel-backdrop';
+      backdrop.innerHTML = `<section class="capcut-panel" id="capcutOpenAiPanel"></section>`;
+      document.body.appendChild(backdrop);
+    }
+    const panel = document.getElementById('capcutOpenAiPanel');
+    if (panel) panel.innerHTML = renderPanelContent();
   }
 
-  function refreshBox() {
-    const old = document.getElementById('capcutOpenAiSubtitlesBox');
-    if (old) old.outerHTML = renderToolBox();
-    else injectBox();
+  function closePanel() {
+    panelOpen = false;
+    document.getElementById('capcutOpenAiPanelBackdrop')?.remove();
+  }
+
+  function refreshPanel() {
+    if (panelOpen) openPanel();
   }
 
   async function saveMedia(blob, fileName) {
@@ -172,7 +231,7 @@
     if (!selectedVideo) return toast('Choisis d’abord une vidéo CapCut.');
 
     busy = true;
-    refreshBox();
+    refreshPanel();
 
     try {
       const style = document.getElementById('capcutSubtitleStyle')?.value || localStorage.getItem('capcut_subtitle_style') || 'classic';
@@ -190,11 +249,7 @@
       transcribeForm.append('audioStartSec', '0');
       transcribeForm.append('audioEndSec', '0');
 
-      const transcribeResponse = await fetch(`${BACKEND_BASE_URL}/api/transcribe/srt`, {
-        method: 'POST',
-        body: transcribeForm
-      });
-
+      const transcribeResponse = await fetch(`${BACKEND_BASE_URL}/api/transcribe/srt`, { method: 'POST', body: transcribeForm });
       let transcribeData = null;
       try { transcribeData = await transcribeResponse.json(); } catch {}
       if (!transcribeResponse.ok) throw new Error(transcribeData?.error || 'Transcription OpenAI impossible.');
@@ -212,17 +267,10 @@
       burnForm.append('aspectRatio', aspectRatio);
       burnForm.append('source', 'openai_capcut_full_video');
 
-      const burnResponse = await fetch(`${BACKEND_BASE_URL}/api/subtitles/burn-video`, {
-        method: 'POST',
-        body: burnForm
-      });
-
+      const burnResponse = await fetch(`${BACKEND_BASE_URL}/api/subtitles/burn-video`, { method: 'POST', body: burnForm });
       if (!burnResponse.ok) {
         let msg = 'Incrustation impossible.';
-        try {
-          const data = await burnResponse.json();
-          msg = data?.error || msg;
-        } catch {}
+        try { const data = await burnResponse.json(); msg = data?.error || msg; } catch {}
         throw new Error(msg);
       }
 
@@ -235,14 +283,13 @@
 
       const outputName = `${safeName(selectedVideo.name.replace(/\.[^.]+$/, ''))}_openai_sous_titres.mp4`;
       await saveMedia(finalBlob, outputName);
-
       toast('Vidéo CapCut sous-titrée prête.');
     } catch (error) {
       console.error(error);
       toast(error.message || 'Erreur outil CapCut OpenAI.');
     } finally {
       busy = false;
-      refreshBox();
+      refreshPanel();
     }
   }
 
@@ -256,31 +303,25 @@
       lastResultUrl = '';
       lastResultBlob = null;
       lastSrt = '';
-      refreshBox();
+      refreshPanel();
     }
 
-    if (event.target?.id === 'capcutSubtitleStyle') {
-      localStorage.setItem('capcut_subtitle_style', event.target.value || 'classic');
-    }
-
-    if (event.target?.id === 'capcutAspectRatio') {
-      localStorage.setItem('capcut_subtitle_ratio', event.target.value || 'vertical');
-    }
+    if (event.target?.id === 'capcutSubtitleStyle') localStorage.setItem('capcut_subtitle_style', event.target.value || 'classic');
+    if (event.target?.id === 'capcutAspectRatio') localStorage.setItem('capcut_subtitle_ratio', event.target.value || 'vertical');
   });
 
   document.addEventListener('click', async (event) => {
     const action = event.target?.closest?.('[data-action]')?.dataset?.action;
     if (!action) return;
 
-    if (action === 'capcut-openai-subtitle') {
-      await createSubtitledVideo();
-    }
+    if (action === 'open-capcut-openai-panel') openPanel();
+    if (action === 'close-capcut-openai-panel') closePanel();
+    if (action === 'capcut-openai-subtitle') await createSubtitledVideo();
 
     if (action === 'capcut-download-final') {
       if (!lastResultBlob) return toast('Aucune vidéo prête.');
-      if (typeof triggerDownloadBlob === 'function') {
-        triggerDownloadBlob(lastResultBlob, `${safeName(selectedVideo?.name || 'video_capcut')}_openai_sous_titres.mp4`);
-      } else {
+      if (typeof triggerDownloadBlob === 'function') triggerDownloadBlob(lastResultBlob, `${safeName(selectedVideo?.name || 'video_capcut')}_openai_sous_titres.mp4`);
+      else {
         const a = document.createElement('a');
         a.href = lastResultUrl;
         a.download = `${safeName(selectedVideo?.name || 'video_capcut')}_openai_sous_titres.mp4`;
@@ -298,6 +339,6 @@
     }
   });
 
-  setInterval(injectBox, 900);
-  console.log(`Outil CapCut sous-titres OpenAI complet actif ${VERSION}.`);
+  setInterval(injectCard, 900);
+  console.log(`Outil séparé CapCut sous-titres OpenAI actif ${VERSION}.`);
 })();
