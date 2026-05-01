@@ -15,11 +15,12 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || "whisper-1";
 const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
+const MAX_FILE_MB = 260;
 const upload = multer({
   dest: TMP_ROOT,
   limits: {
-    fileSize: 260 * 1024 * 1024,
-    files: 1
+    fileSize: MAX_FILE_MB * 1024 * 1024,
+    files: 2
   }
 });
 
@@ -45,6 +46,13 @@ async function removePathQuietly(targetPath) {
   try { await fsp.rm(targetPath, { recursive: true, force: true }); } catch {}
 }
 
+async function cleanupUploadedFiles(files) {
+  const all = [];
+  if (Array.isArray(files)) all.push(...files);
+  else if (files && typeof files === "object") Object.values(files).forEach((entry) => { if (Array.isArray(entry)) all.push(...entry); });
+  await Promise.all(all.map((file) => removePathQuietly(file?.path)));
+}
+
 async function ensureDir(dir) {
   await fsp.mkdir(dir, { recursive: true });
 }
@@ -52,9 +60,7 @@ async function ensureDir(dir) {
 function runFfmpeg(args, id, label) {
   return new Promise((resolve, reject) => {
     log(id, "FFMPEG START", label);
-    const child = spawn(ffmpegPath, ["-hide_banner", "-loglevel", "error", ...args], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
+    const child = spawn(ffmpegPath, ["-hide_banner", "-loglevel", "error", ...args], { stdio: ["ignore", "pipe", "pipe"] });
     let stderr = "";
     child.stderr.on("data", (data) => {
       stderr += data.toString();
@@ -153,13 +159,7 @@ function parseSrt(srt) {
 }
 
 function escapeAssText(text) {
-  return safeText(text)
-    .replace(/\r/g, "")
-    .replace(/\n/g, "\\N")
-    .replace(/\{/g, "")
-    .replace(/\}/g, "")
-    .replace(/[\u0000-\u001F\u007F]/g, " ")
-    .trim();
+  return safeText(text).replace(/\r/g, "").replace(/\n/g, "\\N").replace(/\{/g, "").replace(/\}/g, "").replace(/[\u0000-\u001F\u007F]/g, " ").trim();
 }
 
 function subtitleStyle(styleName, aspectRatio) {
@@ -213,16 +213,42 @@ async function extractAudio(inputPath, outputPath, id) {
 
 async function burnSubtitles(inputVideo, assPath, outputPath, id) {
   await runFfmpeg([
-    "-y",
-    "-i", inputVideo,
+    "-y", "-i", inputVideo,
     "-vf", `ass=${escapeFilterPath(assPath)}`,
-    "-c:v", "libx264",
-    "-preset", "ultrafast",
-    "-pix_fmt", "yuv420p",
-    "-c:a", "copy",
-    "-movflags", "+faststart",
-    outputPath
+    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+    "-c:a", "copy", "-movflags", "+faststart", outputPath
   ], id, "capcut burn openai subtitles");
+}
+
+async function transcribeAudioFile(audioPath, id) {
+  log(id, "OPENAI CAPCUT TRANSCRIBE START", TRANSCRIBE_MODEL);
+  const srtRaw = await client.audio.transcriptions.create({
+    file: fs.createReadStream(audioPath),
+    model: TRANSCRIBE_MODEL,
+    response_format: "srt",
+    language: "fr"
+  });
+  const srt = rebaseSrtToZero(typeof srtRaw === "string" ? srtRaw : String(srtRaw || ""));
+  if (!srt.includes("-->")) throw new Error("OpenAI n’a pas renvoyé de sous-titres exploitables.");
+  log(id, "OPENAI CAPCUT TRANSCRIBE OK", `${srt.length} chars`);
+  return srt;
+}
+
+async function sendBurnedVideo({ id, res, videoPath, audioPath, workDir, style, aspectRatio }) {
+  const assPath = path.join(workDir, "capcut_subtitles.ass");
+  const outputPath = path.join(workDir, "capcut_openai_sous_titres.mp4");
+  const srt = await transcribeAudioFile(audioPath, id);
+  const ass = buildAssFromSrt(srt, style, aspectRatio);
+  await fsp.writeFile(assPath, ass, "utf8");
+  await burnSubtitles(videoPath, assPath, outputPath, id);
+
+  const stat = await fsp.stat(outputPath);
+  log(id, "CAPCUT OPENAI SUBTITLES OK", `${stat.size} bytes`);
+  res.setHeader("Content-Type", "video/mp4");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Disposition", "inline; filename=capcut_openai_sous_titres.mp4");
+  res.setHeader("X-OpenAI-SRT-Length", String(srt.length));
+  fs.createReadStream(outputPath).pipe(res);
 }
 
 function installCapCutSubtitleRoute(app) {
@@ -233,56 +259,47 @@ function installCapCutSubtitleRoute(app) {
     const id = req.reqId || reqId();
     const file = req.file;
     const workDir = path.join(TMP_ROOT, `capcut_${Date.now()}_${id}`);
-
     try {
       if (!client) return res.status(500).json({ ok: false, error: "OPENAI_API_KEY manquante pour la transcription." });
       if (!file) return res.status(400).json({ ok: false, error: "Vidéo CapCut manquante." });
       await ensureDir(workDir);
-
       const style = safeText(req.body?.subtitleStyle || "classic") || "classic";
       const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
       const audioPath = path.join(workDir, "capcut_audio.mp3");
-      const assPath = path.join(workDir, "capcut_subtitles.ass");
-      const outputPath = path.join(workDir, "capcut_openai_sous_titres.mp4");
-
       log(id, "CAPCUT OPENAI START", `${file.originalname || "video"} size=${file.size || 0} style=${style} ratio=${aspectRatio}`);
       await extractAudio(file.path, audioPath, id);
-
-      log(id, "OPENAI CAPCUT TRANSCRIBE START", TRANSCRIBE_MODEL);
-      const srtRaw = await client.audio.transcriptions.create({
-        file: fs.createReadStream(audioPath),
-        model: TRANSCRIBE_MODEL,
-        response_format: "srt",
-        language: "fr"
-      });
-      const srt = rebaseSrtToZero(typeof srtRaw === "string" ? srtRaw : String(srtRaw || ""));
-      if (!srt.includes("-->")) throw new Error("OpenAI n’a pas renvoyé de sous-titres exploitables.");
-      log(id, "OPENAI CAPCUT TRANSCRIBE OK", `${srt.length} chars`);
-
-      const ass = buildAssFromSrt(srt, style, aspectRatio);
-      await fsp.writeFile(assPath, ass, "utf8");
-      await burnSubtitles(file.path, assPath, outputPath, id);
-
-      const stat = await fsp.stat(outputPath);
-      log(id, "CAPCUT OPENAI SUBTITLES OK", `${stat.size} bytes`);
-      res.setHeader("Content-Type", "video/mp4");
-      res.setHeader("Cache-Control", "no-store");
-      res.setHeader("Content-Disposition", "inline; filename=capcut_openai_sous_titres.mp4");
-      res.setHeader("X-OpenAI-SRT-Length", String(srt.length));
-
-      const stream = fs.createReadStream(outputPath);
-      stream.on("close", async () => { await removePathQuietly(file?.path); await removePathQuietly(workDir); });
-      stream.on("error", async (error) => { console.error(`[${id}] CAPCUT STREAM ERROR`, error); await removePathQuietly(file?.path); await removePathQuietly(workDir); });
-      stream.pipe(res);
+      await sendBurnedVideo({ id, res, videoPath: file.path, audioPath, workDir, style, aspectRatio });
+      res.on("finish", async () => { await removePathQuietly(file?.path); await removePathQuietly(workDir); });
     } catch (error) {
       console.error(`[${id}] CAPCUT OPENAI SUBTITLES ERROR`, error);
-      await removePathQuietly(file?.path);
-      await removePathQuietly(workDir);
+      await removePathQuietly(file?.path); await removePathQuietly(workDir);
       res.status(500).json({ ok: false, error: error.message || "Impossible de créer la vidéo CapCut sous-titrée." });
     }
   });
 
-  console.log("Route CapCut sous-titres OpenAI chargée V41 upload unique.");
+  app.post("/api/capcut/openai-subtitles-audio-video", upload.fields([{ name: "video", maxCount: 1 }, { name: "audio", maxCount: 1 }]), async (req, res) => {
+    const id = req.reqId || reqId();
+    const video = req.files?.video?.[0] || null;
+    const audio = req.files?.audio?.[0] || null;
+    const workDir = path.join(TMP_ROOT, `capcut_av_${Date.now()}_${id}`);
+    try {
+      if (!client) return res.status(500).json({ ok: false, error: "OPENAI_API_KEY manquante pour la transcription." });
+      if (!video) return res.status(400).json({ ok: false, error: "Vidéo manquante." });
+      if (!audio) return res.status(400).json({ ok: false, error: "Audio séparé manquant." });
+      await ensureDir(workDir);
+      const style = safeText(req.body?.subtitleStyle || "classic") || "classic";
+      const aspectRatio = safeText(req.body?.aspectRatio || "vertical") || "vertical";
+      log(id, "CAPCUT AUDIO+VIDEO START", `video=${video.size || 0} audio=${audio.size || 0} style=${style} ratio=${aspectRatio}`);
+      await sendBurnedVideo({ id, res, videoPath: video.path, audioPath: audio.path, workDir, style, aspectRatio });
+      res.on("finish", async () => { await cleanupUploadedFiles(req.files); await removePathQuietly(workDir); });
+    } catch (error) {
+      console.error(`[${id}] CAPCUT AUDIO+VIDEO ERROR`, error);
+      await cleanupUploadedFiles(req.files); await removePathQuietly(workDir);
+      res.status(500).json({ ok: false, error: error.message || "Impossible de sous-titrer avec audio + vidéo." });
+    }
+  });
+
+  console.log("Route CapCut sous-titres OpenAI chargée V43 audio+video.");
 }
 
 const originalListen = express.application.listen;
