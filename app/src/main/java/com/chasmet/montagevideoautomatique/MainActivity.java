@@ -28,6 +28,8 @@ import java.util.ArrayList;
 
 public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST_CODE = 2001;
+    private static final String GESTION_PROVIDER_URI = "content://com.chasmet.gestiondefichiers.provider/files";
+
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
     private final ArrayList<Uri> sharedUris = new ArrayList<>();
@@ -59,6 +61,7 @@ public class MainActivity extends Activity {
         settings.setDisplayZoomControls(false);
 
         webView.addJavascriptInterface(new AndroidSharedFilesBridge(), "AndroidSharedFiles");
+        webView.addJavascriptInterface(new GestionnaireLibraryBridge(), "GestionnaireLibrary");
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -143,9 +146,7 @@ public class MainActivity extends Activity {
     private void persistReadPermission(Uri uri) {
         try {
             getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (Exception ignored) {
-            // Some share providers do not allow persistable permissions. Temporary permission is enough while the app is open.
-        }
+        } catch (Exception ignored) {}
     }
 
     private String getName(Uri uri) {
@@ -175,6 +176,58 @@ public class MainActivity extends Activity {
         return mime != null ? mime : "application/octet-stream";
     }
 
+    private String readUriBase64(Uri uri) {
+        try (InputStream input = getContentResolver().openInputStream(uri);
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            if (input == null) return "";
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) != -1) {
+                output.write(buffer, 0, read);
+            }
+            return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception error) {
+            return "";
+        }
+    }
+
+    public class GestionnaireLibraryBridge {
+        @JavascriptInterface
+        public String listFilesJson() {
+            try {
+                JSONArray array = new JSONArray();
+                Uri uri = Uri.parse(GESTION_PROVIDER_URI);
+                try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+                    if (cursor == null) return "[]";
+
+                    int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    int sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE);
+                    int uriIndex = cursor.getColumnIndex("uri");
+                    int mimeIndex = cursor.getColumnIndex("mime");
+
+                    while (cursor.moveToNext()) {
+                        JSONObject item = new JSONObject();
+                        String fileUri = uriIndex >= 0 ? cursor.getString(uriIndex) : "";
+                        item.put("uri", fileUri);
+                        item.put("name", nameIndex >= 0 ? cursor.getString(nameIndex) : "fichier");
+                        item.put("size", sizeIndex >= 0 ? cursor.getLong(sizeIndex) : 0);
+                        item.put("mimeType", mimeIndex >= 0 ? cursor.getString(mimeIndex) : "application/octet-stream");
+                        array.put(item);
+                    }
+                }
+                return array.toString();
+            } catch (Exception error) {
+                return "[]";
+            }
+        }
+
+        @JavascriptInterface
+        public String readFileBase64(String uriString) {
+            if (uriString == null || uriString.trim().isEmpty()) return "";
+            return readUriBase64(Uri.parse(uriString));
+        }
+    }
+
     public class AndroidSharedFilesBridge {
         @JavascriptInterface
         public String getSharedFilesJson() {
@@ -198,20 +251,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String readSharedFileBase64(int index) {
             if (index < 0 || index >= sharedUris.size()) return "";
-            Uri uri = sharedUris.get(index);
-
-            try (InputStream input = getContentResolver().openInputStream(uri);
-                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-                if (input == null) return "";
-                byte[] buffer = new byte[64 * 1024];
-                int read;
-                while ((read = input.read(buffer)) != -1) {
-                    output.write(buffer, 0, read);
-                }
-                return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
-            } catch (Exception error) {
-                return "";
-            }
+            return readUriBase64(sharedUris.get(index));
         }
 
         @JavascriptInterface
