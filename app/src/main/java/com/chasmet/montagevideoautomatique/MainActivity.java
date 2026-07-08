@@ -4,12 +4,14 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
-import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.provider.Settings;
+import android.provider.OpenableColumns;
+import android.util.Base64;
 import android.webkit.ConsoleMessage;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -17,17 +19,26 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.util.ArrayList;
+
 public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST_CODE = 2001;
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
+    private final ArrayList<Uri> sharedUris = new ArrayList<>();
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         requestRuntimePermissions();
+        captureSharedFiles(getIntent());
 
         webView = new WebView(this);
         setContentView(webView);
@@ -47,6 +58,7 @@ public class MainActivity extends Activity {
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
 
+        webView.addJavascriptInterface(new AndroidSharedFilesBridge(), "AndroidSharedFiles");
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -91,6 +103,121 @@ public class MainActivity extends Activity {
         });
 
         webView.loadUrl("file:///android_asset/www/index.html");
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        captureSharedFiles(intent);
+        if (webView != null) {
+            webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-shared-files-ready'))", null);
+        }
+    }
+
+    private void captureSharedFiles(Intent intent) {
+        if (intent == null) return;
+
+        String action = intent.getAction();
+        sharedUris.clear();
+
+        if (Intent.ACTION_SEND.equals(action)) {
+            Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (uri != null) {
+                persistReadPermission(uri);
+                sharedUris.add(uri);
+            }
+        } else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            ArrayList<Uri> uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            if (uris != null) {
+                for (Uri uri : uris) {
+                    if (uri != null) {
+                        persistReadPermission(uri);
+                        sharedUris.add(uri);
+                    }
+                }
+            }
+        }
+    }
+
+    private void persistReadPermission(Uri uri) {
+        try {
+            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } catch (Exception ignored) {
+            // Some share providers do not allow persistable permissions. Temporary permission is enough while the app is open.
+        }
+    }
+
+    private String getName(Uri uri) {
+        String name = "fichier-partage";
+        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) name = cursor.getString(index);
+            }
+        } catch (Exception ignored) {}
+        return name;
+    }
+
+    private long getSize(Uri uri) {
+        long size = 0;
+        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.SIZE);
+                if (index >= 0) size = cursor.getLong(index);
+            }
+        } catch (Exception ignored) {}
+        return size;
+    }
+
+    private String getMime(Uri uri) {
+        String mime = getContentResolver().getType(uri);
+        return mime != null ? mime : "application/octet-stream";
+    }
+
+    public class AndroidSharedFilesBridge {
+        @JavascriptInterface
+        public String getSharedFilesJson() {
+            try {
+                JSONArray array = new JSONArray();
+                for (int i = 0; i < sharedUris.size(); i++) {
+                    Uri uri = sharedUris.get(i);
+                    JSONObject item = new JSONObject();
+                    item.put("index", i);
+                    item.put("name", getName(uri));
+                    item.put("mimeType", getMime(uri));
+                    item.put("size", getSize(uri));
+                    array.put(item);
+                }
+                return array.toString();
+            } catch (Exception error) {
+                return "[]";
+            }
+        }
+
+        @JavascriptInterface
+        public String readSharedFileBase64(int index) {
+            if (index < 0 || index >= sharedUris.size()) return "";
+            Uri uri = sharedUris.get(index);
+
+            try (InputStream input = getContentResolver().openInputStream(uri);
+                 ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                if (input == null) return "";
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, read);
+                }
+                return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
+            } catch (Exception error) {
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public void clearSharedFiles() {
+            sharedUris.clear();
+        }
     }
 
     private void requestRuntimePermissions() {
