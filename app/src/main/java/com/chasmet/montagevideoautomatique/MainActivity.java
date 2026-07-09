@@ -3,13 +3,17 @@ package com.chasmet.montagevideoautomatique;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.StatFs;
 import android.provider.OpenableColumns;
 import android.util.Base64;
+import android.view.HapticFeedbackConstants;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
@@ -18,6 +22,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -64,6 +69,7 @@ public class MainActivity extends Activity {
 
         webView.addJavascriptInterface(new AndroidSharedFilesBridge(), "AndroidSharedFiles");
         webView.addJavascriptInterface(new GestionnaireLibraryBridge(), "GestionnaireLibrary");
+        webView.addJavascriptInterface(new MontageAndroidBridge(), "MontageAndroid");
         webView.setWebViewClient(new WebViewClient());
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -93,10 +99,12 @@ public class MainActivity extends Activity {
                 }
 
                 try {
+                    nativeFeedback("soft");
                     startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE);
                     return true;
                 } catch (Exception error) {
                     MainActivity.this.filePathCallback = null;
+                    nativeFeedback("error");
                     return false;
                 }
             }
@@ -118,6 +126,18 @@ public class MainActivity extends Activity {
         if (webView != null) {
             webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-shared-files-ready'))", null);
         }
+    }
+
+    private void nativeFeedback(String kind) {
+        if (webView == null) return;
+        int feedback = HapticFeedbackConstants.KEYBOARD_TAP;
+        if ("success".equals(kind)) feedback = HapticFeedbackConstants.CONFIRM;
+        if ("error".equals(kind) || "danger".equals(kind)) feedback = HapticFeedbackConstants.REJECT;
+        if ("long".equals(kind)) feedback = HapticFeedbackConstants.LONG_PRESS;
+
+        try {
+            webView.performHapticFeedback(feedback);
+        } catch (Exception ignored) {}
     }
 
     private void captureSharedFiles(Intent intent) {
@@ -190,6 +210,53 @@ public class MainActivity extends Activity {
             return Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP);
         } catch (Exception error) {
             return "";
+        }
+    }
+
+    public class MontageAndroidBridge {
+        @JavascriptInterface
+        public String getDeviceProfileJson() {
+            try {
+                Runtime runtime = Runtime.getRuntime();
+                ActivityManager manager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+                if (manager != null) manager.getMemoryInfo(memoryInfo);
+
+                StatFs statFs = new StatFs(getFilesDir().getAbsolutePath());
+                long freeStorageMb = (statFs.getAvailableBytes() / 1024L) / 1024L;
+                long totalStorageMb = (statFs.getTotalBytes() / 1024L) / 1024L;
+
+                JSONObject item = new JSONObject();
+                item.put("apk", true);
+                item.put("manufacturer", Build.MANUFACTURER);
+                item.put("model", Build.MODEL);
+                item.put("sdk", Build.VERSION.SDK_INT);
+                item.put("cores", runtime.availableProcessors());
+                item.put("freeMemoryMb", (memoryInfo.availMem / 1024L) / 1024L);
+                item.put("totalMemoryMb", (memoryInfo.totalMem / 1024L) / 1024L);
+                item.put("freeStorageMb", freeStorageMb);
+                item.put("totalStorageMb", totalStorageMb);
+                return item.toString();
+            } catch (Exception error) {
+                return "{\"apk\":true}";
+            }
+        }
+
+        @JavascriptInterface
+        public void keepScreenOn(boolean enabled) {
+            runOnUiThread(() -> {
+                if (webView != null) webView.setKeepScreenOn(enabled);
+            });
+        }
+
+        @JavascriptInterface
+        public void haptic(String kind) {
+            runOnUiThread(() -> nativeFeedback(kind));
+        }
+
+        @JavascriptInterface
+        public void toast(String message) {
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show());
         }
     }
 
@@ -315,9 +382,13 @@ public class MainActivity extends Activity {
                 for (int i = 0; i < count; i++) {
                     results[i] = data.getClipData().getItemAt(i).getUri();
                 }
+                nativeFeedback(count > 0 ? "success" : "error");
             } else if (data.getData() != null) {
                 results = new Uri[] { data.getData() };
+                nativeFeedback("success");
             }
+        } else {
+            nativeFeedback("error");
         }
 
         filePathCallback.onReceiveValue(results);
@@ -327,6 +398,7 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (webView != null && webView.canGoBack()) {
+            nativeFeedback("soft");
             webView.goBack();
         } else {
             super.onBackPressed();
