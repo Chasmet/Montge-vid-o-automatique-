@@ -48,6 +48,22 @@
     }
   }
 
+  function openGestionnaireImporter() {
+    if (!hasBridge() || typeof GestionnaireLibrary.openGestionnaireImporter !== "function") {
+      toast("Import dossier indisponible dans cette version de l’APK.");
+      return;
+    }
+
+    const result = GestionnaireLibrary.openGestionnaireImporter();
+    if (result === "OK") {
+      closePanel();
+      toast("Choisis un dossier dans le gestionnaire de fichiers Android.");
+      return;
+    }
+
+    toast("Impossible d’ouvrir Gestionnaire. Réinstalle le nouvel APK Gestionnaire.");
+  }
+
   function groupByFolder(files) {
     const groups = new Map();
     for (const file of files || []) {
@@ -254,6 +270,12 @@
     }
 
     const files = listGestionnaireFiles();
+
+    if (!files.length) {
+      openGestionnaireImporter();
+      return;
+    }
+
     const folders = groupByFolder(files);
 
     const foldersHtml = folders.length
@@ -271,9 +293,14 @@
             </div>
           `;
         }).join("")
-      : `<p style="color:#cbd5e1;">Aucun fichier trouvé. Ouvre Gestionnaire une fois, importe tes fichiers dans un dossier, puis reviens ici.</p>`;
+      : `<p style="color:#cbd5e1;">Aucun dossier exploitable trouvé.</p>`;
 
-    renderShell(`<div>${foldersHtml}</div>`);
+    renderShell(`
+      <button id="gestionOpenImporter" style="width:100%;border:0;border-radius:14px;padding:13px;background:#2563eb;color:white;font-weight:900;margin-bottom:12px;">➕ Importer un dossier depuis le téléphone</button>
+      <div>${foldersHtml}</div>
+    `);
+
+    document.getElementById("gestionOpenImporter").onclick = openGestionnaireImporter;
 
     document.querySelectorAll("[data-open-folder]").forEach((button) => {
       button.onclick = () => openFolderView(folders[Number(button.dataset.openFolder)]);
