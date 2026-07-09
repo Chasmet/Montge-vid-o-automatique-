@@ -1,0 +1,14 @@
+/* Complément APK : évite le doublon avec l'ancien header/nav */
+body.apk-pro-runtime #screen.apk-pro-shell-active ~ *,
+body.apk-pro-runtime:has(#screen.apk-pro-shell-active) .topbar,
+body.apk-pro-runtime:has(#screen.apk-pro-shell-active) #bottomNav {
+  display: none !important;
+}
+
+body.apk-pro-runtime:has(#screen.apk-pro-shell-active) .app-main,
+body.apk-pro-runtime:has(#screen.apk-pro-shell-active) .app-shell {
+  padding: 0 !important;
+  margin: 0 !important;
+  max-width: none !important;
+  width: 100% !important;
+}
