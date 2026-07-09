@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: build
+    name: build-apk-installable
     runs-on: ubuntu-latest
 
     steps:
@@ -46,8 +46,13 @@ jobs:
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
 
-      - name: Upload APK
+      - name: Prepare installable APK artifact
+        run: |
+          mkdir -p apk-installable
+          cp app/build/outputs/apk/debug/app-debug.apk apk-installable/MontageIA.apk
+
+      - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Montage-Video-Automatique-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: APK-Montage-IA-A-INSTALLER
+          path: apk-installable/MontageIA.apk
