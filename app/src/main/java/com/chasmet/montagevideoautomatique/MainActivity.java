@@ -204,14 +204,19 @@ public class MainActivity extends Activity {
                     int sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE);
                     int uriIndex = cursor.getColumnIndex("uri");
                     int mimeIndex = cursor.getColumnIndex("mime");
+                    int folderIndex = cursor.getColumnIndex("folderPath");
+                    int relativeIndex = cursor.getColumnIndex("relativePath");
 
                     while (cursor.moveToNext()) {
                         JSONObject item = new JSONObject();
                         String fileUri = uriIndex >= 0 ? cursor.getString(uriIndex) : "";
+                        String folderPath = folderIndex >= 0 ? cursor.getString(folderIndex) : "Vrac";
                         item.put("uri", fileUri);
                         item.put("name", nameIndex >= 0 ? cursor.getString(nameIndex) : "fichier");
                         item.put("size", sizeIndex >= 0 ? cursor.getLong(sizeIndex) : 0);
                         item.put("mimeType", mimeIndex >= 0 ? cursor.getString(mimeIndex) : "application/octet-stream");
+                        item.put("folderPath", folderPath == null || folderPath.trim().isEmpty() ? "Vrac" : folderPath);
+                        item.put("relativePath", relativeIndex >= 0 ? cursor.getString(relativeIndex) : "");
                         array.put(item);
                     }
                 }
