@@ -29,6 +29,8 @@ import java.util.ArrayList;
 public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST_CODE = 2001;
     private static final String GESTION_PROVIDER_URI = "content://com.chasmet.gestiondefichiers.provider/files";
+    private static final String GESTION_IMPORT_ACTION = "com.chasmet.gestiondefichiers.IMPORT_FOLDER";
+    private static final String GESTION_PACKAGE = "com.chasmet.gestiondefichiers";
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -230,6 +232,19 @@ public class MainActivity extends Activity {
         public String readFileBase64(String uriString) {
             if (uriString == null || uriString.trim().isEmpty()) return "";
             return readUriBase64(Uri.parse(uriString));
+        }
+
+        @JavascriptInterface
+        public String openGestionnaireImporter() {
+            try {
+                Intent intent = new Intent(GESTION_IMPORT_ACTION);
+                intent.setPackage(GESTION_PACKAGE);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+                return "OK";
+            } catch (Exception error) {
+                return "ERROR";
+            }
         }
     }
 
